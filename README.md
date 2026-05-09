@@ -1,6 +1,8 @@
-# DeepHermes
+# DeepHermes Desktop
 
-DeepHermes is a Windows desktop agent client optimized for DeepSeek models. It is built with Wails, Go, React, Vite, Tailwind CSS, and Zustand.
+DeepSeek-optimized Windows desktop AI agent built with Wails, Go, React, and Vite.
+
+DeepHermes is a Windows desktop agent client optimized for DeepSeek models. It includes a polished light/dark UI, streaming chat, reasoning content support, local configuration, and cowork/subagent panels.
 
 ## Features
 
@@ -118,3 +120,7 @@ web/        Embedded web assets
 - The frontend build uses relative asset paths so the desktop bundle can load packaged assets reliably.
 - The theme preference is saved in browser local storage.
 - If the UI looks stale after rebuilding, make sure you launched `build\bin\DeepHermes.exe` from the latest build output.
+
+## License
+
+MIT
