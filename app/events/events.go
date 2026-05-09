@@ -8,13 +8,13 @@ import (
 type EventType string
 
 const (
-	EventStreamDelta  EventType = "stream:delta"
-	EventStreamDone   EventType = "stream:done"
-	EventToolCall     EventType = "tool:call"
-	EventToolResult   EventType = "tool:result"
-	EventAgentStatus  EventType = "agent:status"
-	EventError        EventType = "error"
-	EventCoworkUpdate EventType = "cowork:update"
+	EventStreamDelta   EventType = "stream:delta"
+	EventStreamDone    EventType = "stream:done"
+	EventToolCall      EventType = "tool:call"
+	EventToolResult    EventType = "tool:result"
+	EventAgentStatus   EventType = "agent:status"
+	EventError         EventType = "error"
+	EventCoworkUpdate  EventType = "cowork:update"
 	EventSessionUpdate EventType = "session:update"
 )
 
@@ -38,12 +38,15 @@ func NewEvent(t EventType, sessionID string, data any) AppEvent {
 // Event payloads
 
 type StreamDeltaPayload struct {
-	Content string `json:"content"`
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoningContent,omitempty"`
 }
 
 type StreamDonePayload struct {
 	FullResponse string `json:"fullResponse"`
 	TokensUsed   int    `json:"tokensUsed"`
+	Usage        any    `json:"usage,omitempty"`
+	Metrics      any    `json:"metrics,omitempty"`
 }
 
 type ToolCallPayload struct {

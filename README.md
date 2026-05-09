@@ -8,8 +8,11 @@ DeepHermes is a Windows desktop agent client optimized for DeepSeek models. It i
 
 - DeepSeek API key setup and local configuration persistence.
 - Default model profile tuned for `deepseek-v4-pro`.
-- Streaming chat UI with reasoning content support.
+- Persistent chat sessions restored across app restarts.
+- Streaming chat UI with reasoning content support and display controls.
+- Token usage, output speed, reasoning token, and DeepSeek cache hit/miss tracking.
 - Agent workspace panels for files, sessions, status, and cowork/subagent flows.
+- Resizable session and file sidebars with persisted layout preference.
 - Light and dark themes with persisted preference.
 - DeepSeek-inspired interface styling with smooth panel, button, and empty-state animations.
 - Correct Windows desktop packaging through Wails build tags.

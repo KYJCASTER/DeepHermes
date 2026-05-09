@@ -9,18 +9,19 @@ import (
 )
 
 type Config struct {
-	Model           string       `yaml:"model"`
-	MaxTokens       int          `yaml:"max_tokens"`
-	Temperature     float64      `yaml:"temperature"`
-	ThinkingEnabled bool         `yaml:"thinking_enabled"`
-	AutoCowork      bool         `yaml:"auto_cowork"`
-	API             APIConfig    `yaml:"api"`
-	APIKey          string       `yaml:"api_key,omitempty"`
-	AllowedTools    []string     `yaml:"allowed_tools"`
-	Memory          MemoryConfig `yaml:"memory"`
-	Plans           PlansConfig  `yaml:"plans"`
-	Web             WebConfig    `yaml:"web"`
-	configPath      string       `yaml:"-"`
+	Model            string       `yaml:"model"`
+	MaxTokens        int          `yaml:"max_tokens"`
+	Temperature      float64      `yaml:"temperature"`
+	ThinkingEnabled  bool         `yaml:"thinking_enabled"`
+	ReasoningDisplay string       `yaml:"reasoning_display"`
+	AutoCowork       bool         `yaml:"auto_cowork"`
+	API              APIConfig    `yaml:"api"`
+	APIKey           string       `yaml:"api_key,omitempty"`
+	AllowedTools     []string     `yaml:"allowed_tools"`
+	Memory           MemoryConfig `yaml:"memory"`
+	Plans            PlansConfig  `yaml:"plans"`
+	Web              WebConfig    `yaml:"web"`
+	configPath       string       `yaml:"-"`
 }
 
 type APIConfig struct {
@@ -45,11 +46,12 @@ type WebConfig struct {
 
 func Default() *Config {
 	return &Config{
-		Model:           "deepseek-v4-pro",
-		MaxTokens:       32768,
-		Temperature:     0.7,
-		ThinkingEnabled: false,
-		AutoCowork:      false,
+		Model:            "deepseek-v4-pro",
+		MaxTokens:        32768,
+		Temperature:      0.7,
+		ThinkingEnabled:  false,
+		ReasoningDisplay: "collapse",
+		AutoCowork:       false,
 		API: APIConfig{
 			BaseURL:        "https://api.deepseek.com",
 			TimeoutSeconds: 120,

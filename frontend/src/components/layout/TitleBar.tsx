@@ -1,16 +1,16 @@
 import { Bot, Languages, Maximize, Minus, Moon, PanelRight, Plus, Settings, Square, Sun, X } from "lucide-react";
+import { useState } from "react";
+import { useCoworkStore } from "../../stores/coworkStore";
+import { LANG_LABELS, useI18n } from "../../stores/i18nStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useCoworkStore } from "../../stores/coworkStore";
-import { useI18n, LANG_LABELS } from "../../stores/i18nStore";
 import { useThemeStore } from "../../stores/themeStore";
-import { WindowMinimise, WindowMaximise, WindowUnmaximise, Quit } from "../../lib/wails";
-import { useState } from "react";
+import { Quit, WindowMaximise, WindowMinimise, WindowUnmaximise } from "../../lib/wails";
 
 export default function TitleBar() {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const setActiveSession = useSessionStore((s) => s.setActiveSession);
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
   const toggleSettings = useSettingsStore((s) => s.togglePanel);
   const toggleCowork = useCoworkStore((s) => s.togglePanel);
   const theme = useThemeStore((s) => s.theme);
@@ -23,7 +23,6 @@ export default function TitleBar() {
     await store.createSession(t("sessions.new"));
   };
 
-  const winMinimize = () => WindowMinimise();
   const winMaximize = () => {
     if (maximized) {
       WindowUnmaximise();
@@ -32,51 +31,36 @@ export default function TitleBar() {
     }
     setMaximized(!maximized);
   };
-  const winClose = () => Quit();
 
   return (
-    <div className="soft-panel titlebar-drag flex h-12 shrink-0 select-none items-center border-b border-border bg-surface/90">
-      <div className="flex items-center gap-2 px-3">
+    <div className="rail-panel titlebar-drag flex h-12 shrink-0 select-none items-center border-b border-border">
+      <div className="flex min-w-0 items-center gap-3 px-3">
         <div className="ds-mark flex h-7 w-7 items-center justify-center rounded bg-accent text-bg shadow-sm">
           <Bot size={14} />
         </div>
-        <span className="text-sm font-semibold tracking-wide text-text">{t("app.title")}</span>
-        <span className="text-xs text-dim">{t("app.subtitle")}</span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold tracking-wide text-text">{t("app.title")}</span>
+            <span className="rounded bg-panel px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-dim">
+              {t("app.subtitle")}
+            </span>
+          </div>
+        </div>
       </div>
 
-      <div className="titlebar-no-drag ml-2 flex flex-1 items-center gap-1 overflow-x-auto">
-        {sessions.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => setActiveSession(s.id)}
-            className={`motion-lift rounded px-3 py-1.5 text-xs transition whitespace-nowrap ${
-              s.id === activeSessionId
-                ? "bg-panel text-text shadow-sm"
-                : "text-dim hover:bg-panel/80 hover:text-text"
-            }`}
-          >
-            {s.name}
-            {s.status === "thinking" && (
-              <span className="ml-1 text-yellow">●</span>
-            )}
-            {s.status === "streaming" && (
-              <span className="ml-1 text-accent agent-running">●</span>
-            )}
-          </button>
-        ))}
-        <button
-          onClick={handleNewSession}
-          className="motion-lift titlebar-no-drag flex h-7 w-7 items-center justify-center rounded text-dim transition hover:bg-panel hover:text-text"
-          title={t("sidebar.newSession")}
-        >
+      <div className="mx-4 min-w-0 flex-1">
+        <div className="truncate text-center text-xs text-dim">
+          {activeSession ? activeSession.name : t("sessions.emptyHint")}
+        </div>
+      </div>
+
+      <div className="titlebar-no-drag flex items-center gap-1 pr-1">
+        <button onClick={handleNewSession} className="icon-button h-8 w-8" title={t("sidebar.newSession")}>
           <Plus size={15} />
         </button>
-      </div>
-
-      <div className="titlebar-no-drag ml-2 flex items-center gap-1 pr-1">
         <button
           onClick={toggleLang}
-          className="motion-lift flex h-8 min-w-8 items-center justify-center gap-1 rounded px-2 text-xs text-dim transition hover:bg-panel hover:text-accent"
+          className="icon-button h-8 min-w-8 gap-1 px-2 text-xs"
           title={LANG_LABELS[lang]}
         >
           <Languages size={14} />
@@ -95,28 +79,23 @@ export default function TitleBar() {
             {theme === "dark" ? <Moon size={13} /> : <Sun size={13} />}
           </span>
         </button>
-        <button
-          onClick={toggleCowork}
-          className="motion-lift flex h-8 w-8 items-center justify-center rounded text-dim transition hover:bg-panel hover:text-accent"
-          title={t("titlebar.cowork")}
-        >
+        <button onClick={toggleCowork} className="icon-button h-8 w-8" title={t("titlebar.cowork")}>
           <PanelRight size={15} />
         </button>
-        <button
-          onClick={toggleSettings}
-          className="motion-lift flex h-8 w-8 items-center justify-center rounded text-dim transition hover:bg-panel hover:text-text"
-          title={t("titlebar.settings")}
-        >
+        <button onClick={toggleSettings} className="icon-button h-8 w-8" title={t("titlebar.settings")}>
           <Settings size={15} />
         </button>
-
-        <button onClick={winMinimize} className="motion-lift flex h-8 w-8 items-center justify-center rounded text-dim transition hover:bg-panel hover:text-text" title="Minimize">
+        <button onClick={WindowMinimise} className="icon-button h-8 w-8" title="Minimize">
           <Minus size={14} />
         </button>
-        <button onClick={winMaximize} className="motion-lift flex h-8 w-8 items-center justify-center rounded text-dim transition hover:bg-panel hover:text-text" title="Maximize">
+        <button onClick={winMaximize} className="icon-button h-8 w-8" title="Maximize">
           {maximized ? <Maximize size={14} /> : <Square size={12} />}
         </button>
-        <button onClick={winClose} className="motion-lift flex h-8 w-8 items-center justify-center rounded text-dim transition hover:bg-red/10 hover:text-red" title="Close">
+        <button
+          onClick={Quit}
+          className="icon-button h-8 w-8 hover:bg-red/10 hover:text-red"
+          title="Close"
+        >
           <X size={14} />
         </button>
       </div>

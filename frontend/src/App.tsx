@@ -44,7 +44,7 @@ export default function App() {
     unsubs.push(EventsOn("stream:delta", (raw: unknown) => {
       try {
         const evt = parseEvent(raw);
-        appendToStream(evt.sessionId, evt.data?.content || "");
+        appendToStream(evt.sessionId, evt.data?.content || "", evt.data?.reasoningContent || "");
       } catch (e) {
         console.error("Failed to handle stream delta:", e);
       }
@@ -54,7 +54,7 @@ export default function App() {
       try {
         const evt = parseEvent(raw);
         if (evt?.sessionId) {
-          finishStream(evt.sessionId);
+          finishStream(evt.sessionId, evt.data?.metrics);
         }
       } catch (e) {
         console.error("Failed to handle stream done:", e);
@@ -143,12 +143,12 @@ export default function App() {
       <TitleBar />
       <div className="app-content flex flex-1 overflow-hidden bg-bg/78">
         <Sidebar />
-        <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <main className="workspace-main flex min-w-0 flex-1 flex-col overflow-hidden">
           {activeSessionId ? (
             <ChatView />
           ) : (
-            <div className="flex-1 flex items-center justify-center px-8 text-dim">
-              <div className="fade-up max-w-md text-center">
+            <div className="flex flex-1 items-center justify-center px-8 text-dim">
+              <div className="fade-up panel-card w-full max-w-lg rounded border border-border px-8 py-9 text-center">
                 <div className="ds-mark mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded bg-accent/12 text-accent">
                   <Sparkles size={24} />
                 </div>

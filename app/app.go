@@ -43,6 +43,28 @@ type Session struct {
 	Model     string             `json:"model"`
 	Cancel    context.CancelFunc `json:"-"`
 	CreatedAt time.Time          `json:"createdAt"`
+	UpdatedAt time.Time          `json:"updatedAt"`
+	Usage     TokenUsage         `json:"usage"`
+	LastRun   *RunMetrics        `json:"lastRun,omitempty"`
+}
+
+type TokenUsage struct {
+	PromptTokens          int `json:"promptTokens"`
+	CompletionTokens      int `json:"completionTokens"`
+	TotalTokens           int `json:"totalTokens"`
+	PromptCacheHitTokens  int `json:"promptCacheHitTokens"`
+	PromptCacheMissTokens int `json:"promptCacheMissTokens"`
+	ReasoningTokens       int `json:"reasoningTokens"`
+}
+
+type RunMetrics struct {
+	Usage        TokenUsage `json:"usage"`
+	StartedAt    string     `json:"startedAt"`
+	FirstTokenAt string     `json:"firstTokenAt,omitempty"`
+	FinishedAt   string     `json:"finishedAt"`
+	FirstTokenMs int64      `json:"firstTokenMs"`
+	DurationMs   int64      `json:"durationMs"`
+	TokensPerSec float64    `json:"tokensPerSec"`
 }
 
 type SubAgentRuntime struct {
@@ -73,9 +95,22 @@ func NewApp(cfg *config.Config) *App {
 
 func (a *App) OnStartup(ctx context.Context) {
 	a.ctx = ctx
+	if err := a.loadPersistedSessions(); err != nil {
+		runtime.LogError(ctx, fmt.Sprintf("failed to load sessions: %v", err))
+	}
 }
 
 func (a *App) OnShutdown(ctx context.Context) {
+	a.sessionsMu.RLock()
+	var sessionIDs []string
+	for id := range a.sessions {
+		sessionIDs = append(sessionIDs, id)
+	}
+	a.sessionsMu.RUnlock()
+	for _, id := range sessionIDs {
+		_ = a.saveSessionByID(id)
+	}
+
 	// Cancel all running sub-agents
 	a.subAgentsMu.Lock()
 	for _, sa := range a.subAgents {
@@ -133,18 +168,21 @@ func (a *App) CreateSession(name string) (*CreateSessionResult, error) {
 		name = "New Session"
 	}
 	ag := agent.New(a.client, a.registry, a.agentConfig())
+	now := time.Now()
 
 	sess := &Session{
 		ID:        id,
 		Name:      name,
 		Agent:     ag,
 		Model:     a.cfg.Model,
-		CreatedAt: time.Now(),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	a.sessionsMu.Lock()
 	a.sessions[id] = sess
 	a.sessionsMu.Unlock()
+	_ = a.saveSessionByID(id)
 
 	runtime.EventsEmit(a.ctx, string(events.EventSessionUpdate), events.SessionUpdatePayload{
 		SessionID: id,
@@ -164,6 +202,7 @@ func (a *App) DeleteSession(sessionID string) error {
 	a.sessionsMu.Lock()
 	delete(a.sessions, sessionID)
 	a.sessionsMu.Unlock()
+	_ = a.deleteStoredSession(sessionID)
 
 	runtime.EventsEmit(a.ctx, string(events.EventSessionUpdate), events.SessionUpdatePayload{
 		SessionID: sessionID,
@@ -173,11 +212,14 @@ func (a *App) DeleteSession(sessionID string) error {
 }
 
 type SessionInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Model     string `json:"model"`
-	CreatedAt string `json:"createdAt"`
-	MsgCount  int    `json:"msgCount"`
+	ID        string      `json:"id"`
+	Name      string      `json:"name"`
+	Model     string      `json:"model"`
+	CreatedAt string      `json:"createdAt"`
+	UpdatedAt string      `json:"updatedAt"`
+	MsgCount  int         `json:"msgCount"`
+	Usage     TokenUsage  `json:"usage"`
+	LastRun   *RunMetrics `json:"lastRun,omitempty"`
 }
 
 func (a *App) ListSessions() []SessionInfo {
@@ -191,11 +233,14 @@ func (a *App) ListSessions() []SessionInfo {
 			Name:      s.Name,
 			Model:     s.Model,
 			CreatedAt: s.CreatedAt.Format(time.RFC3339),
+			UpdatedAt: s.UpdatedAt.Format(time.RFC3339),
 			MsgCount:  len(s.Messages),
+			Usage:     s.Usage,
+			LastRun:   s.LastRun,
 		})
 	}
 	sort.Slice(list, func(i, j int) bool {
-		return list[i].CreatedAt > list[j].CreatedAt
+		return list[i].UpdatedAt > list[j].UpdatedAt
 	})
 	return list
 }
@@ -226,10 +271,16 @@ func (a *App) SendMessage(req SendMessageRequest) error {
 		return fmt.Errorf("session is already running")
 	}
 	ctx, cancel := context.WithCancel(a.ctx)
+	history := append([]api.Message(nil), sess.Messages...)
+	now := time.Now()
 	sess.Cancel = cancel
 	sess.Model = a.cfg.Model
+	sess.UpdatedAt = now
+	sess.Messages = append(sess.Messages, api.Message{Role: "user", Content: req.Message})
+	sess.Agent.SetMessages(history)
 	sess.Agent.UpdateConfig(a.agentConfig())
 	a.sessionsMu.Unlock()
+	_ = a.saveSessionByID(req.SessionID)
 
 	// Emit status: thinking
 	emit(a.ctx, req.SessionID, events.EventAgentStatus, events.AgentStatusPayload{
@@ -247,9 +298,25 @@ func (a *App) SendMessage(req SendMessageRequest) error {
 			a.sessionsMu.Unlock()
 		}()
 
-		resp, err := sess.Agent.Run(ctx, req.Message)
+		lastSave := time.Now()
+		result, err := sess.Agent.RunStreamDetailed(ctx, req.Message, func(update api.StreamUpdate) error {
+			if update.Content == "" && update.ReasoningContent == "" {
+				return nil
+			}
+			a.appendAssistantDelta(req.SessionID, update.Content, update.ReasoningContent)
+			emit(a.ctx, req.SessionID, events.EventStreamDelta, events.StreamDeltaPayload{
+				Content:          update.Content,
+				ReasoningContent: update.ReasoningContent,
+			})
+			if time.Since(lastSave) > 750*time.Millisecond {
+				_ = a.saveSessionByID(req.SessionID)
+				lastSave = time.Now()
+			}
+			return nil
+		})
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
+				_ = a.saveSessionByID(req.SessionID)
 				emit(a.ctx, req.SessionID, events.EventStreamDone, events.StreamDonePayload{})
 				emit(a.ctx, req.SessionID, events.EventAgentStatus, events.AgentStatusPayload{
 					Status: "idle",
@@ -268,20 +335,37 @@ func (a *App) SendMessage(req SendMessageRequest) error {
 			return
 		}
 
-		// Emit final content
-		emit(a.ctx, req.SessionID, events.EventStreamDelta, events.StreamDeltaPayload{Content: resp})
+		if result == nil {
+			result = &agent.RunResult{FinishedAt: time.Now()}
+		}
+		metrics := runMetricsFromResult(result)
+		a.sessionsMu.Lock()
+		if s, ok := a.sessions[req.SessionID]; ok {
+			if len(s.Messages) == 0 || s.Messages[len(s.Messages)-1].Role != "assistant" {
+				s.Messages = append(s.Messages, api.Message{Role: "assistant"})
+			}
+			last := s.Messages[len(s.Messages)-1]
+			last.Content = result.Content
+			last.ReasoningContent = result.ReasoningContent
+			s.Messages[len(s.Messages)-1] = last
+			s.UpdatedAt = time.Now()
+			if metrics != nil {
+				s.LastRun = metrics
+				s.Usage.Add(metrics.Usage)
+			}
+		}
+		a.sessionsMu.Unlock()
+		_ = a.saveSessionByID(req.SessionID)
+
 		emit(a.ctx, req.SessionID, events.EventStreamDone, events.StreamDonePayload{
-			FullResponse: resp,
+			FullResponse: result.Content,
+			Usage:        metricsUsage(metrics),
+			Metrics:      metrics,
 		})
 		emit(a.ctx, req.SessionID, events.EventAgentStatus, events.AgentStatusPayload{
 			Status: "idle",
 			Model:  sess.Model,
 		})
-
-		// Update session messages
-		a.sessionsMu.Lock()
-		sess.Messages = sess.Agent.Messages()
-		a.sessionsMu.Unlock()
 	}()
 
 	return nil
@@ -292,8 +376,10 @@ func (a *App) AbortMessage(sessionID string) {
 	if sess, ok := a.sessions[sessionID]; ok && sess.Cancel != nil {
 		sess.Cancel()
 		sess.Cancel = nil
+		sess.UpdatedAt = time.Now()
 	}
 	a.sessionsMu.Unlock()
+	_ = a.saveSessionByID(sessionID)
 	emit(a.ctx, sessionID, events.EventStreamDone, events.StreamDonePayload{})
 	emit(a.ctx, sessionID, events.EventAgentStatus, events.AgentStatusPayload{
 		Status: "idle",
@@ -408,22 +494,24 @@ func (a *App) OpenDirectoryDialog() (string, error) {
 // ============================================================================
 
 type AppSettings struct {
-	Model           string  `json:"model"`
-	MaxTokens       int     `json:"maxTokens"`
-	Temperature     float64 `json:"temperature"`
-	BaseURL         string  `json:"baseUrl"`
-	ThinkingEnabled bool    `json:"thinkingEnabled"`
-	AutoCowork      bool    `json:"autoCowork"`
+	Model            string  `json:"model"`
+	MaxTokens        int     `json:"maxTokens"`
+	Temperature      float64 `json:"temperature"`
+	BaseURL          string  `json:"baseUrl"`
+	ThinkingEnabled  bool    `json:"thinkingEnabled"`
+	ReasoningDisplay string  `json:"reasoningDisplay"`
+	AutoCowork       bool    `json:"autoCowork"`
 }
 
 func (a *App) GetSettings() AppSettings {
 	return AppSettings{
-		Model:           a.cfg.Model,
-		MaxTokens:       a.cfg.MaxTokens,
-		Temperature:     a.cfg.Temperature,
-		BaseURL:         a.cfg.API.BaseURL,
-		ThinkingEnabled: a.cfg.ThinkingEnabled,
-		AutoCowork:      a.cfg.AutoCowork,
+		Model:            a.cfg.Model,
+		MaxTokens:        a.cfg.MaxTokens,
+		Temperature:      a.cfg.Temperature,
+		BaseURL:          a.cfg.API.BaseURL,
+		ThinkingEnabled:  a.cfg.ThinkingEnabled,
+		ReasoningDisplay: normalizeReasoningDisplay(a.cfg.ReasoningDisplay),
+		AutoCowork:       a.cfg.AutoCowork,
 	}
 }
 
@@ -444,6 +532,7 @@ func (a *App) UpdateSettings(settings AppSettings) error {
 	a.cfg.Temperature = settings.Temperature
 	a.cfg.API.BaseURL = settings.BaseURL
 	a.cfg.ThinkingEnabled = settings.ThinkingEnabled
+	a.cfg.ReasoningDisplay = normalizeReasoningDisplay(settings.ReasoningDisplay)
 	a.cfg.AutoCowork = settings.AutoCowork
 	a.syncClientConfig()
 	a.syncSessionConfigs()
@@ -671,6 +760,15 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+func normalizeReasoningDisplay(mode string) string {
+	switch mode {
+	case "show", "collapse", "hide":
+		return mode
+	default:
+		return "collapse"
+	}
 }
 
 func shouldHideFileEntry(name string) bool {

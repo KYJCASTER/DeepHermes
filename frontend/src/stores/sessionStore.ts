@@ -1,9 +1,29 @@
 import { create } from "zustand";
-import { AbortMessage, CreateSession, DeleteSession, ListSessions, SendMessage } from "../lib/wails";
+import { AbortMessage, CreateSession, DeleteSession, GetHistory, ListSessions, SendMessage } from "../lib/wails";
 
 export interface Message {
   role: string;
   content: string;
+  reasoningContent?: string;
+}
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  promptCacheHitTokens: number;
+  promptCacheMissTokens: number;
+  reasoningTokens: number;
+}
+
+export interface RunMetrics {
+  usage: TokenUsage;
+  startedAt: string;
+  firstTokenAt?: string;
+  finishedAt: string;
+  firstTokenMs: number;
+  durationMs: number;
+  tokensPerSec: number;
 }
 
 export interface Session {
@@ -11,10 +31,13 @@ export interface Session {
   name: string;
   model: string;
   createdAt: string;
+  updatedAt?: string;
   msgCount: number;
   messages: Message[];
   streaming: boolean;
   status: "idle" | "thinking" | "streaming" | "executing";
+  usage: TokenUsage;
+  lastRun?: RunMetrics;
 }
 
 interface SessionStore {
@@ -27,10 +50,61 @@ interface SessionStore {
   setActiveSession: (id: string) => void;
   sendMessage: (sessionId: string, message: string) => Promise<void>;
   abortMessage: (sessionId: string) => Promise<void>;
-  appendToStream: (sessionId: string, content: string) => void;
-  finishStream: (sessionId: string) => void;
+  appendToStream: (sessionId: string, content: string, reasoningContent?: string) => void;
+  finishStream: (sessionId: string, metrics?: RunMetrics) => void;
   setSessionStatus: (sessionId: string, status: Session["status"]) => void;
   addMessage: (sessionId: string, msg: Message) => void;
+}
+
+const emptyUsage = (): TokenUsage => ({
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  promptCacheHitTokens: 0,
+  promptCacheMissTokens: 0,
+  reasoningTokens: 0,
+});
+
+function normalizeUsage(value: any): TokenUsage {
+  return {
+    ...emptyUsage(),
+    ...(value || {}),
+  };
+}
+
+function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    promptTokens: a.promptTokens + b.promptTokens,
+    completionTokens: a.completionTokens + b.completionTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
+    promptCacheHitTokens: a.promptCacheHitTokens + b.promptCacheHitTokens,
+    promptCacheMissTokens: a.promptCacheMissTokens + b.promptCacheMissTokens,
+    reasoningTokens: a.reasoningTokens + b.reasoningTokens,
+  };
+}
+
+function normalizeMessage(msg: any): Message {
+  return {
+    role: msg.role,
+    content: msg.content || "",
+    reasoningContent: msg.reasoningContent || msg.reasoning_content || "",
+  };
+}
+
+function normalizeSession(raw: any, messages: Message[] = []): Session {
+  return {
+    id: raw.id,
+    name: raw.name,
+    model: raw.model,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    msgCount: raw.msgCount ?? messages.length,
+    messages,
+    streaming: false,
+    status: "idle",
+    usage: normalizeUsage(raw.usage),
+    lastRun: raw.lastRun,
+  };
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -40,13 +114,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   loadSessions: async () => {
     try {
       const list = await ListSessions();
+      const sessions = await Promise.all(
+        (list || []).map(async (s: any) => {
+          const history = await GetHistory(s.id);
+          return normalizeSession(s, (history || []).map(normalizeMessage));
+        })
+      );
+      const current = get().activeSessionId;
       set({
-        sessions: list.map((s: any) => ({
-          ...s,
-          messages: [],
-          streaming: false,
-          status: "idle" as const,
-        })),
+        sessions,
+        activeSessionId: current && sessions.some((s) => s.id === current) ? current : sessions[0]?.id ?? null,
       });
     } catch (e) {
       console.error("Failed to load sessions:", e);
@@ -56,16 +133,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   createSession: async (name: string) => {
     const result = await CreateSession(name);
     set((state) => ({
-      sessions: [
-        {
-          ...result,
-          msgCount: 0,
-          messages: [],
-          streaming: false,
-          status: "idle" as const,
-        },
-        ...state.sessions,
-      ],
+      sessions: [normalizeSession({ ...result, usage: emptyUsage() }), ...state.sessions],
       activeSessionId: result.id,
     }));
     return result.id;
@@ -91,6 +159,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           ? {
               ...s,
               messages: [...s.messages, { role: "user", content: message }],
+              msgCount: s.messages.length + 1,
               streaming: true,
               status: "thinking",
             }
@@ -112,27 +181,39 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     get().finishStream(sessionId);
   },
 
-  appendToStream: (sessionId: string, content: string) => {
+  appendToStream: (sessionId: string, content: string, reasoningContent = "") => {
     set((state) => ({
       sessions: state.sessions.map((s) => {
         if (s.id !== sessionId) return s;
         const msgs = [...s.messages];
         const last = msgs[msgs.length - 1];
         if (last && last.role === "assistant") {
-          msgs[msgs.length - 1] = { ...last, content: last.content + content };
+          msgs[msgs.length - 1] = {
+            ...last,
+            content: last.content + content,
+            reasoningContent: (last.reasoningContent || "") + reasoningContent,
+          };
         } else {
-          msgs.push({ role: "assistant", content });
+          msgs.push({ role: "assistant", content, reasoningContent });
         }
-        return { ...s, messages: msgs, status: "streaming" as const };
+        return { ...s, messages: msgs, msgCount: msgs.length, status: "streaming" as const };
       }),
     }));
   },
 
-  finishStream: (sessionId: string) => {
+  finishStream: (sessionId: string, metrics?: RunMetrics) => {
     set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === sessionId ? { ...s, streaming: false, status: "idle" as const } : s
-      ),
+      sessions: state.sessions.map((s) => {
+        if (s.id !== sessionId) return s;
+        return {
+          ...s,
+          streaming: false,
+          status: "idle" as const,
+          msgCount: s.messages.length,
+          lastRun: metrics || s.lastRun,
+          usage: metrics ? addUsage(s.usage, normalizeUsage(metrics.usage)) : s.usage,
+        };
+      }),
     }));
   },
 
@@ -145,7 +226,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   addMessage: (sessionId: string, msg: Message) => {
     set((state) => ({
       sessions: state.sessions.map((s) =>
-        s.id === sessionId ? { ...s, messages: [...s.messages, msg] } : s
+        s.id === sessionId ? { ...s, messages: [...s.messages, msg], msgCount: s.messages.length + 1 } : s
       ),
     }));
   },

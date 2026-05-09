@@ -36,6 +36,7 @@ type FunctionDef struct {
 }
 
 type ToolCall struct {
+	Index    int          `json:"index,omitempty"`
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`
 	Function FunctionCall `json:"function"`
@@ -57,8 +58,13 @@ type ChatRequest struct {
 	MaxTokens       int             `json:"max_tokens"`
 	Temperature     float64         `json:"temperature"`
 	Stream          bool            `json:"stream"`
+	StreamOptions   *StreamOptions  `json:"stream_options,omitempty"`
 	Thinking        *ThinkingConfig `json:"thinking,omitempty"`
 	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
+}
+
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type ChatResponse struct {
@@ -82,13 +88,28 @@ type Delta struct {
 }
 
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens            int                      `json:"prompt_tokens"`
+	CompletionTokens        int                      `json:"completion_tokens"`
+	TotalTokens             int                      `json:"total_tokens"`
+	PromptCacheHitTokens    int                      `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens   int                      `json:"prompt_cache_miss_tokens"`
+	CompletionTokensDetails *CompletionTokensDetails `json:"completion_tokens_details,omitempty"`
+}
+
+type CompletionTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
 type StreamChunk struct {
 	Choices []Choice `json:"choices"`
+	Usage   *Usage   `json:"usage,omitempty"`
+}
+
+type StreamUpdate struct {
+	Content          string
+	ReasoningContent string
+	ToolCalls        []ToolCall
+	Usage            *Usage
 }
 
 // --- Client ---
@@ -269,10 +290,14 @@ func (c *Client) ChatContext(ctx context.Context, messages []Message, tools []To
 	return &chatResp, nil
 }
 
-// StreamCallback receives each content delta as it arrives.
-type StreamCallback func(deltaContent string, toolCalls []ToolCall) error
+// StreamCallback receives streamed content, reasoning, tool-call, and usage updates.
+type StreamCallback func(update StreamUpdate) error
 
 func (c *Client) ChatStream(messages []Message, tools []ToolDef, maxTokens int, temperature float64, cb StreamCallback) (*ChatResponse, error) {
+	return c.ChatStreamContext(context.Background(), messages, tools, maxTokens, temperature, cb)
+}
+
+func (c *Client) ChatStreamContext(ctx context.Context, messages []Message, tools []ToolDef, maxTokens int, temperature float64, cb StreamCallback) (*ChatResponse, error) {
 	cfg := c.snapshot()
 	reqBody := ChatRequest{
 		Model:           cfg.model,
@@ -281,6 +306,7 @@ func (c *Client) ChatStream(messages []Message, tools []ToolDef, maxTokens int, 
 		MaxTokens:       maxTokens,
 		Temperature:     temperature,
 		Stream:          true,
+		StreamOptions:   &StreamOptions{IncludeUsage: true},
 		Thinking:        buildThinking(cfg.model, cfg.thinkingEnabled),
 		ReasoningEffort: buildReasoningEffort(cfg.model, cfg.thinkingEnabled),
 	}
@@ -289,7 +315,7 @@ func (c *Client) ChatStream(messages []Message, tools []ToolDef, maxTokens int, 
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", cfg.baseURL+"/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", cfg.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -320,15 +346,21 @@ func (c *Client) ChatStream(messages []Message, tools []ToolDef, maxTokens int, 
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
+		if chunk.Usage != nil {
+			finalResp.Usage = chunk.Usage
+			if err := cb(StreamUpdate{Usage: chunk.Usage}); err != nil {
+				return nil, err
+			}
+		}
 		for _, choice := range chunk.Choices {
 			if choice.Delta != nil {
-				if choice.Delta.Content != "" {
-					if err := cb(choice.Delta.Content, nil); err != nil {
-						return nil, err
-					}
+				update := StreamUpdate{
+					Content:          choice.Delta.Content,
+					ReasoningContent: choice.Delta.ReasoningContent,
+					ToolCalls:        choice.Delta.ToolCalls,
 				}
-				if len(choice.Delta.ToolCalls) > 0 {
-					if err := cb("", choice.Delta.ToolCalls); err != nil {
+				if update.Content != "" || update.ReasoningContent != "" || len(update.ToolCalls) > 0 {
+					if err := cb(update); err != nil {
 						return nil, err
 					}
 				}

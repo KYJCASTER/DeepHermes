@@ -9,6 +9,7 @@ const defaultSettings = {
   temperature: 0.7,
   baseUrl: "https://api.deepseek.com",
   thinkingEnabled: false,
+  reasoningDisplay: "collapse",
   autoCowork: false,
 };
 

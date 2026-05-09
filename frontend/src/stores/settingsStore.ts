@@ -1,12 +1,15 @@
 import { create } from "zustand";
 import { GetSettings, UpdateSettings, SetAPIKey, GetAPIKeyStatus } from "../lib/wails";
 
+export type ReasoningDisplay = "show" | "collapse" | "hide";
+
 interface SettingsState {
   model: string;
   maxTokens: number;
   temperature: number;
   baseUrl: string;
   thinkingEnabled: boolean;
+  reasoningDisplay: ReasoningDisplay;
   autoCowork: boolean;
   apiKeyStatus: string;
   isOpen: boolean;
@@ -24,6 +27,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   temperature: 0.7,
   baseUrl: "https://api.deepseek.com",
   thinkingEnabled: false,
+  reasoningDisplay: "collapse",
   autoCowork: false,
   apiKeyStatus: "unknown",
   isOpen: false,
@@ -46,6 +50,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       temperature: partial.temperature ?? current.temperature,
       baseUrl: partial.baseUrl ?? current.baseUrl,
       thinkingEnabled: partial.thinkingEnabled ?? current.thinkingEnabled,
+      reasoningDisplay: partial.reasoningDisplay ?? current.reasoningDisplay,
       autoCowork: partial.autoCowork ?? current.autoCowork,
     };
     try {

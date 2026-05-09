@@ -32,6 +32,7 @@ export default function SettingsDialog() {
         temperature: settings.temperature,
         baseUrl,
         thinkingEnabled: settings.thinkingEnabled,
+        reasoningDisplay: settings.reasoningDisplay,
         autoCowork: settings.autoCowork,
       });
       setSaved(true);
@@ -189,22 +190,49 @@ export default function SettingsDialog() {
           </div>
 
           {supportsThinking(settings.model) && (
-            <div className="flex items-center justify-between rounded border border-border bg-bg/80 p-3">
-              <div>
-                <span className="text-sm text-text">{t("chat.thinkingToggle")}</span>
-              </div>
-              <button
-                onClick={() => savePartial({ thinkingEnabled: !settings.thinkingEnabled })}
-                className={`relative h-5 w-10 rounded-full transition ${
-                  settings.thinkingEnabled ? "bg-accent" : "bg-border"
-                }`}
-              >
-                <div
-                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${
-                    settings.thinkingEnabled ? "left-5" : "left-0.5"
+            <div className="space-y-3 rounded border border-border bg-bg/80 p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm text-text">{t("chat.thinkingToggle")}</span>
+                  <p className="text-xs text-dim">{t("chat.thinkingDesc")}</p>
+                </div>
+                <button
+                  onClick={() => savePartial({ thinkingEnabled: !settings.thinkingEnabled })}
+                  className={`relative h-5 w-10 rounded-full transition ${
+                    settings.thinkingEnabled ? "bg-accent" : "bg-border"
                   }`}
-                />
-              </button>
+                >
+                  <div
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${
+                      settings.thinkingEnabled ? "left-5" : "left-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+              {settings.thinkingEnabled && (
+                <div>
+                  <label className="mb-2 block text-xs text-dim">{t("chat.reasoningDisplay")}</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      ["show", t("chat.reasoningShow")],
+                      ["collapse", t("chat.reasoningCollapse")],
+                      ["hide", t("chat.reasoningHide")],
+                    ].map(([id, label]) => (
+                      <button
+                        key={id}
+                        onClick={() => savePartial({ reasoningDisplay: id as any })}
+                        className={`motion-lift rounded border px-2 py-1.5 text-xs transition ${
+                          settings.reasoningDisplay === id
+                            ? "border-accent bg-accent/10 text-text"
+                            : "border-border bg-surface text-dim hover:border-dim hover:text-text"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
