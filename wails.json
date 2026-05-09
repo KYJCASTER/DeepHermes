@@ -1,0 +1,26 @@
+{
+  "name": "DeepHermes",
+  "outputfilename": "DeepHermes",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "http://localhost:5173",
+  "author": {
+    "name": "DeepHermes",
+    "email": ""
+  },
+  "info": {
+    "productName": "DeepHermes",
+    "productVersion": "1.0.0",
+    "copyright": "MIT",
+    "comments": "AI Agent Desktop - Powered by DeepSeek"
+  },
+  "nsis": {
+    "installDirectory": "$PROGRAMFILES\\DeepHermes",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "DeepHermes",
+    "uninstallDisplayName": "DeepHermes",
+    "license": "LICENSE"
+  }
+}

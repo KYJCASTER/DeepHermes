@@ -1,0 +1,31 @@
+# DeepHermes Configuration
+# Default config; override with ~/.deephermes/config.yaml or env vars
+
+model: deepseek-v4-pro
+max_tokens: 32768
+temperature: 0.7
+thinking_enabled: false
+auto_cowork: false
+
+# API configuration
+api:
+  base_url: https://api.deepseek.com
+  timeout_seconds: 120
+  max_retries: 3
+
+# Tool permissions (empty = allow all)
+allowed_tools: []
+
+# Memory system
+memory:
+  enabled: true
+  dir: ~/.deephermes/memory
+
+# Plan mode
+plans:
+  dir: ~/.deephermes/plans
+
+# Web UI
+web:
+  enabled: false
+  port: 8080
