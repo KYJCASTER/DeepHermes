@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSessionStore } from "./stores/sessionStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useCoworkStore } from "./stores/coworkStore";
-import { EventsOn } from "./lib/wails";
+import { EventsOn, WindowGetPosition, WindowGetSize, WindowSetPosition, WindowSetSize } from "./lib/wails";
 import { Plus, Sparkles } from "lucide-react";
 import TitleBar from "./components/layout/TitleBar";
 import Sidebar from "./components/layout/Sidebar";
@@ -122,6 +122,43 @@ export default function App() {
     }
     init();
   }, []);
+
+  useEffect(() => {
+    if (loading || apiKeyStatus !== "configured") return;
+    const raw = localStorage.getItem("deephermes.windowBounds");
+    if (raw) {
+      try {
+        const bounds = JSON.parse(raw);
+        if (bounds?.w >= 900 && bounds?.h >= 600) {
+          WindowSetSize(bounds.w, bounds.h);
+        }
+        if (Number.isFinite(bounds?.x) && Number.isFinite(bounds?.y)) {
+          WindowSetPosition(bounds.x, bounds.y);
+        }
+      } catch (e) {
+        console.error("Failed to restore window bounds:", e);
+      }
+    }
+
+    const saveBounds = async () => {
+      try {
+        const [size, position] = await Promise.all([WindowGetSize(), WindowGetPosition()]);
+        localStorage.setItem(
+          "deephermes.windowBounds",
+          JSON.stringify({ w: size.w, h: size.h, x: position.x, y: position.y })
+        );
+      } catch (e) {
+        console.error("Failed to save window bounds:", e);
+      }
+    };
+    const timer = window.setInterval(saveBounds, 2500);
+    window.addEventListener("beforeunload", saveBounds);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("beforeunload", saveBounds);
+      saveBounds();
+    };
+  }, [loading, apiKeyStatus]);
 
   if (loading) {
     return (

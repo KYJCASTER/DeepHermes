@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -57,5 +59,29 @@ func TestChatStreamContextParsesReasoningAndUsage(t *testing.T) {
 	}
 	if resp.Usage == nil || resp.Usage.TotalTokens != 15 {
 		t.Fatalf("expected final response usage, got %#v", resp.Usage)
+	}
+}
+
+func TestChatContextReturnsReadableAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad key","type":"authentication_error","code":"invalid_api_key"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "deepseek-v4-flash", "bad", 0)
+	_, err := client.ChatContext(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, 1024, 0.7)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusUnauthorized || apiErr.Code != "invalid_api_key" {
+		t.Fatalf("unexpected API error: %#v", apiErr)
+	}
+	if !strings.Contains(err.Error(), "API key") {
+		t.Fatalf("expected friendly API key message, got %q", err.Error())
 	}
 }

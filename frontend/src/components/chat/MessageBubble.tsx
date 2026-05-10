@@ -1,7 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useState } from "react";
-import { Bot, Brain, ChevronDown, ChevronRight, TerminalSquare, User } from "lucide-react";
+import { Bot, Brain, Check, ChevronDown, ChevronRight, GitBranch, Pencil, RotateCcw, TerminalSquare, Trash2, User, X } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../stores/i18nStore";
 
@@ -10,15 +10,43 @@ interface Props {
   content: string;
   reasoningContent?: string;
   isStreaming?: boolean;
+  disabled?: boolean;
+  onEdit?: (content: string) => Promise<void> | void;
+  onDelete?: () => Promise<void> | void;
+  onRegenerate?: () => Promise<void> | void;
+  onBranch?: () => Promise<void> | void;
 }
 
-export default function MessageBubble({ role, content, reasoningContent = "", isStreaming }: Props) {
+export default function MessageBubble({
+  role,
+  content,
+  reasoningContent = "",
+  isStreaming,
+  disabled,
+  onEdit,
+  onDelete,
+  onRegenerate,
+  onBranch,
+}: Props) {
   const isUser = role === "user";
   const isSystem = role === "system" || role === "tool";
   const reasoningDisplay = useSettingsStore((s) => s.reasoningDisplay);
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(reasoningDisplay === "show");
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(content);
   const hasReasoning = !isUser && reasoningContent.trim().length > 0 && reasoningDisplay !== "hide";
+
+  const saveEdit = async () => {
+    const next = draft.trim();
+    if (!next || next === content) {
+      setEditing(false);
+      setDraft(content);
+      return;
+    }
+    await onEdit?.(next);
+    setEditing(false);
+  };
 
   if (isSystem) {
     return (
@@ -45,6 +73,30 @@ export default function MessageBubble({ role, content, reasoningContent = "", is
         <div className={`mb-1 flex items-center gap-2 text-[11px] uppercase tracking-wide text-dim ${isUser ? "justify-end" : ""}`}>
           <span>{isUser ? "You" : "DeepHermes"}</span>
           {isStreaming && <span className="agent-running h-1.5 w-1.5 rounded-full bg-accent" />}
+          {!disabled && !editing && (
+            <div className={`flex items-center gap-1 normal-case tracking-normal ${isUser ? "order-first" : ""}`}>
+              {onEdit && (
+                <button onClick={() => setEditing(true)} className="message-action" title={t("chat.editMessage")}>
+                  <Pencil size={12} />
+                </button>
+              )}
+              {onRegenerate && (
+                <button onClick={() => onRegenerate()} className="message-action" title={t("chat.regenerateMessage")}>
+                  <RotateCcw size={12} />
+                </button>
+              )}
+              {onBranch && (
+                <button onClick={() => onBranch()} className="message-action" title={t("chat.branchMessage")}>
+                  <GitBranch size={12} />
+                </button>
+              )}
+              {onDelete && (
+                <button onClick={() => onDelete()} className="message-action hover:text-red" title={t("chat.deleteMessage")}>
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <div
           className={`message-card rounded px-4 py-3 ${
@@ -70,7 +122,35 @@ export default function MessageBubble({ role, content, reasoningContent = "", is
             </div>
           )}
 
-          {isUser ? (
+          {editing ? (
+            <div className="space-y-2">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                className="min-h-28 w-full resize-y rounded border border-border bg-bg/80 px-3 py-2 text-sm leading-6 text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15"
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setEditing(false);
+                    setDraft(content);
+                  }}
+                  className="motion-lift inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-dim hover:text-text"
+                >
+                  <X size={12} />
+                  {t("settings.cancel")}
+                </button>
+                <button
+                  onClick={saveEdit}
+                  className="motion-lift inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-xs font-semibold text-bg hover:bg-accent-alt"
+                >
+                  <Check size={12} />
+                  {t("settings.save")}
+                </button>
+              </div>
+            </div>
+          ) : isUser ? (
             <p className="whitespace-pre-wrap text-sm leading-6">{content}</p>
           ) : (
             <div className="markdown-body">

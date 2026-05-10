@@ -5,13 +5,21 @@ import {api} from '../models';
 
 export function AbortMessage(arg1:string):Promise<void>;
 
+export function BranchSession(arg1:app.BranchSessionRequest):Promise<app.CreateSessionResult>;
+
 export function CancelSubAgent(arg1:string):Promise<void>;
 
 export function CreateSession(arg1:string):Promise<app.CreateSessionResult>;
 
+export function DeleteMessage(arg1:app.MessageIndexRequest):Promise<void>;
+
 export function DeleteSession(arg1:string):Promise<void>;
 
+export function ExportSettings():Promise<string>;
+
 export function GetAPIKeyStatus():Promise<string>;
+
+export function GetDiagnostics():Promise<app.AppDiagnostics>;
 
 export function GetHistory(arg1:string):Promise<Array<api.Message>>;
 
@@ -23,6 +31,10 @@ export function GetSubAgents():Promise<Array<app.SubAgentStatus>>;
 
 export function GetWorkspaceDir():Promise<string>;
 
+export function HideMainWindow():Promise<void>;
+
+export function ImportSettings():Promise<void>;
+
 export function ListDirectory(arg1:string):Promise<Array<app.FileEntry>>;
 
 export function ListSessions():Promise<Array<app.SessionInfo>>;
@@ -33,7 +45,13 @@ export function OpenDirectoryDialog():Promise<string>;
 
 export function OpenFileDialog():Promise<string>;
 
+export function QuitApp():Promise<void>;
+
 export function ReadFileContent(arg1:string):Promise<string>;
+
+export function RegenerateMessage(arg1:app.MessageIndexRequest):Promise<void>;
+
+export function RestoreMainWindow():Promise<void>;
 
 export function SendMessage(arg1:app.SendMessageRequest):Promise<void>;
 
@@ -42,5 +60,7 @@ export function SetAPIKey(arg1:string):Promise<void>;
 export function SetThinking(arg1:boolean):Promise<void>;
 
 export function SpawnSubAgent(arg1:app.SpawnSubAgentRequest):Promise<string>;
+
+export function UpdateMessage(arg1:app.UpdateMessageRequest):Promise<void>;
 
 export function UpdateSettings(arg1:app.AppSettings):Promise<void>;

@@ -6,6 +6,10 @@ export function AbortMessage(arg1) {
   return window['go']['app']['App']['AbortMessage'](arg1);
 }
 
+export function BranchSession(arg1) {
+  return window['go']['app']['App']['BranchSession'](arg1);
+}
+
 export function CancelSubAgent(arg1) {
   return window['go']['app']['App']['CancelSubAgent'](arg1);
 }
@@ -14,12 +18,24 @@ export function CreateSession(arg1) {
   return window['go']['app']['App']['CreateSession'](arg1);
 }
 
+export function DeleteMessage(arg1) {
+  return window['go']['app']['App']['DeleteMessage'](arg1);
+}
+
 export function DeleteSession(arg1) {
   return window['go']['app']['App']['DeleteSession'](arg1);
 }
 
+export function ExportSettings() {
+  return window['go']['app']['App']['ExportSettings']();
+}
+
 export function GetAPIKeyStatus() {
   return window['go']['app']['App']['GetAPIKeyStatus']();
+}
+
+export function GetDiagnostics() {
+  return window['go']['app']['App']['GetDiagnostics']();
 }
 
 export function GetHistory(arg1) {
@@ -42,6 +58,14 @@ export function GetWorkspaceDir() {
   return window['go']['app']['App']['GetWorkspaceDir']();
 }
 
+export function HideMainWindow() {
+  return window['go']['app']['App']['HideMainWindow']();
+}
+
+export function ImportSettings() {
+  return window['go']['app']['App']['ImportSettings']();
+}
+
 export function ListDirectory(arg1) {
   return window['go']['app']['App']['ListDirectory'](arg1);
 }
@@ -62,8 +86,20 @@ export function OpenFileDialog() {
   return window['go']['app']['App']['OpenFileDialog']();
 }
 
+export function QuitApp() {
+  return window['go']['app']['App']['QuitApp']();
+}
+
 export function ReadFileContent(arg1) {
   return window['go']['app']['App']['ReadFileContent'](arg1);
+}
+
+export function RegenerateMessage(arg1) {
+  return window['go']['app']['App']['RegenerateMessage'](arg1);
+}
+
+export function RestoreMainWindow() {
+  return window['go']['app']['App']['RestoreMainWindow']();
 }
 
 export function SendMessage(arg1) {
@@ -80,6 +116,10 @@ export function SetThinking(arg1) {
 
 export function SpawnSubAgent(arg1) {
   return window['go']['app']['App']['SpawnSubAgent'](arg1);
+}
+
+export function UpdateMessage(arg1) {
+  return window['go']['app']['App']['UpdateMessage'](arg1);
 }
 
 export function UpdateSettings(arg1) {

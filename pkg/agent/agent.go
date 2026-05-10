@@ -59,6 +59,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (string, error) {
 	msgs := []api.Message{{Role: "system", Content: sysPrompt}}
 	msgs = append(msgs, sanitizeHistory(a.messages)...)
 	msgs = append(msgs, api.Message{Role: "user", Content: userMessage})
+	turnMessages := []api.Message{{Role: "user", Content: userMessage}}
 
 	apiTools := a.registry.ToAPITools()
 
@@ -75,25 +76,26 @@ func (a *Agent) Run(ctx context.Context, userMessage string) (string, error) {
 		msgs = append(msgs, msg)
 
 		if len(msg.ToolCalls) > 0 {
+			turnMessages = append(turnMessages, msg)
 			results := a.registry.ExecuteAll(ctx, msg.ToolCalls)
 			for _, r := range results {
-				msgs = append(msgs, api.Message{
+				toolMsg := api.Message{
 					Role:       "tool",
 					ToolCallID: r.ToolCallID,
 					Content:    r.Content,
-				})
+				}
+				msgs = append(msgs, toolMsg)
+				turnMessages = append(turnMessages, toolMsg)
 			}
 			continue
 		}
 
-		a.messages = append(a.messages,
-			api.Message{Role: "user", Content: userMessage},
-			api.Message{
-				Role:             "assistant",
-				Content:          msg.Content,
-				ReasoningContent: msg.ReasoningContent,
-			},
-		)
+		turnMessages = append(turnMessages, api.Message{
+			Role:             "assistant",
+			Content:          msg.Content,
+			ReasoningContent: msg.ReasoningContent,
+		})
+		a.messages = append(a.messages, sanitizeHistory(turnMessages)...)
 		a.trimHistory()
 		return msg.Content, nil
 	}
@@ -122,6 +124,7 @@ func (a *Agent) RunStreamDetailed(ctx context.Context, userMessage string, cb fu
 	msgs := []api.Message{{Role: "system", Content: sysPrompt}}
 	msgs = append(msgs, sanitizeHistory(a.messages)...)
 	msgs = append(msgs, api.Message{Role: "user", Content: userMessage})
+	turnMessages := []api.Message{{Role: "user", Content: userMessage}}
 
 	apiTools := a.registry.ToAPITools()
 	result := &RunResult{StartedAt: time.Now()}
@@ -167,17 +170,26 @@ func (a *Agent) RunStreamDetailed(ctx context.Context, userMessage string, cb fu
 
 		calls := orderedToolCalls(toolCalls, toolOrder)
 		if len(calls) > 0 {
-			msgs = append(msgs, api.Message{Role: "assistant", ToolCalls: calls})
+			assistantToolMsg := api.Message{
+				Role:             "assistant",
+				Content:          content.String(),
+				ReasoningContent: reasoning.String(),
+				ToolCalls:        calls,
+			}
+			msgs = append(msgs, assistantToolMsg)
+			turnMessages = append(turnMessages, assistantToolMsg)
 			results := a.registry.ExecuteAll(ctx, calls)
 			for _, r := range results {
 				if cb != nil {
 					_ = cb(api.StreamUpdate{Content: fmt.Sprintf("\n[Tool: %s]\n%s\n", r.Name, r.Content)})
 				}
-				msgs = append(msgs, api.Message{
+				toolMsg := api.Message{
 					Role:       "tool",
 					ToolCallID: r.ToolCallID,
 					Content:    r.Content,
-				})
+				}
+				msgs = append(msgs, toolMsg)
+				turnMessages = append(turnMessages, toolMsg)
 			}
 			continue
 		}
@@ -186,14 +198,12 @@ func (a *Agent) RunStreamDetailed(ctx context.Context, userMessage string, cb fu
 		result.ReasoningContent = reasoning.String()
 		result.FinishedAt = time.Now()
 
-		a.messages = append(a.messages,
-			api.Message{Role: "user", Content: userMessage},
-			api.Message{
-				Role:             "assistant",
-				Content:          result.Content,
-				ReasoningContent: result.ReasoningContent,
-			},
-		)
+		turnMessages = append(turnMessages, api.Message{
+			Role:             "assistant",
+			Content:          result.Content,
+			ReasoningContent: result.ReasoningContent,
+		})
+		a.messages = append(a.messages, sanitizeHistory(turnMessages)...)
 		a.trimHistory()
 		return result, nil
 	}
@@ -205,7 +215,9 @@ func sanitizeHistory(messages []api.Message) []api.Message {
 	out := make([]api.Message, 0, len(messages))
 	for _, msg := range messages {
 		clean := msg
-		clean.ReasoningContent = ""
+		if clean.Role != "assistant" || len(clean.ToolCalls) == 0 {
+			clean.ReasoningContent = ""
+		}
 		out = append(out, clean)
 	}
 	return out

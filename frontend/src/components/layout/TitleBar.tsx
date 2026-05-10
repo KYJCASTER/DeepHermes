@@ -1,22 +1,25 @@
-import { Bot, Languages, Maximize, Minus, Moon, PanelRight, Plus, Settings, Square, Sun, X } from "lucide-react";
+import { Bot, Languages, Maximize, Minus, Moon, PanelRight, Plus, Settings, Sparkles, Square, Sun, X } from "lucide-react";
 import { useState } from "react";
 import { useCoworkStore } from "../../stores/coworkStore";
 import { LANG_LABELS, useI18n } from "../../stores/i18nStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
-import { Quit, WindowMaximise, WindowMinimise, WindowUnmaximise } from "../../lib/wails";
+import { HideMainWindow, Quit, WindowMaximise, WindowMinimise, WindowUnmaximise } from "../../lib/wails";
 
 export default function TitleBar() {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const toggleSettings = useSettingsStore((s) => s.togglePanel);
+  const minimizeToTray = useSettingsStore((s) => s.minimizeToTray);
   const toggleCowork = useCoworkStore((s) => s.togglePanel);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const { t, lang, toggleLang } = useI18n();
   const [maximized, setMaximized] = useState(false);
+  const themeTitle = theme === "dark" ? t("theme.light") : theme === "light" ? t("theme.anime") : t("theme.dark");
+  const ThemeIcon = theme === "dark" ? Moon : theme === "anime" ? Sparkles : Sun;
 
   const handleNewSession = async () => {
     const store = useSessionStore.getState();
@@ -30,6 +33,14 @@ export default function TitleBar() {
       WindowMaximise();
     }
     setMaximized(!maximized);
+  };
+
+  const closeWindow = () => {
+    if (minimizeToTray) {
+      HideMainWindow();
+      return;
+    }
+    Quit();
   };
 
   return (
@@ -68,15 +79,15 @@ export default function TitleBar() {
         </button>
         <button
           onClick={toggleTheme}
-          className="theme-toggle-track relative flex h-8 w-14 items-center rounded-full px-1 transition"
-          title={theme === "dark" ? t("theme.light") : t("theme.dark")}
+          className="theme-toggle-track relative flex h-8 w-[4.75rem] items-center rounded-full px-1 transition"
+          title={themeTitle}
         >
           <span
             className={`flex h-6 w-6 items-center justify-center rounded-full bg-accent text-bg shadow-sm transition-transform duration-300 ${
-              theme === "dark" ? "translate-x-6" : "translate-x-0"
+              theme === "anime" ? "translate-x-[1.55rem]" : theme === "dark" ? "translate-x-[2.75rem]" : "translate-x-0"
             }`}
           >
-            {theme === "dark" ? <Moon size={13} /> : <Sun size={13} />}
+            <ThemeIcon size={13} />
           </span>
         </button>
         <button onClick={toggleCowork} className="icon-button h-8 w-8" title={t("titlebar.cowork")}>
@@ -92,9 +103,9 @@ export default function TitleBar() {
           {maximized ? <Maximize size={14} /> : <Square size={12} />}
         </button>
         <button
-          onClick={Quit}
+          onClick={closeWindow}
           className="icon-button h-8 w-8 hover:bg-red/10 hover:text-red"
-          title="Close"
+          title={minimizeToTray ? t("titlebar.hideToTray") : "Close"}
         >
           <X size={14} />
         </button>

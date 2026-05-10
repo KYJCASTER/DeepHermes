@@ -47,10 +47,17 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup:  desktopApp.OnStartup,
-		OnShutdown: desktopApp.OnShutdown,
+		OnStartup:     desktopApp.OnStartup,
+		OnShutdown:    desktopApp.OnShutdown,
+		OnBeforeClose: desktopApp.OnBeforeClose,
 		Bind: []interface{}{
 			desktopApp,
+		},
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: "deephermes-desktop",
+			OnSecondInstanceLaunch: func(secondInstanceData options.SecondInstanceData) {
+				desktopApp.RestoreMainWindow()
+			},
 		},
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,

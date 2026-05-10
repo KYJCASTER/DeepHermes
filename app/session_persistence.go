@@ -12,14 +12,16 @@ import (
 )
 
 type storedSession struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Model     string        `json:"model"`
-	Messages  []api.Message `json:"messages"`
-	CreatedAt time.Time     `json:"createdAt"`
-	UpdatedAt time.Time     `json:"updatedAt"`
-	Usage     TokenUsage    `json:"usage"`
-	LastRun   *RunMetrics   `json:"lastRun,omitempty"`
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	Model          string        `json:"model"`
+	Messages       []api.Message `json:"messages"`
+	AgentMessages  []api.Message `json:"agentMessages,omitempty"`
+	ContextSummary string        `json:"contextSummary,omitempty"`
+	CreatedAt      time.Time     `json:"createdAt"`
+	UpdatedAt      time.Time     `json:"updatedAt"`
+	Usage          TokenUsage    `json:"usage"`
+	LastRun        *RunMetrics   `json:"lastRun,omitempty"`
 }
 
 func (a *App) loadPersistedSessions() error {
@@ -68,17 +70,23 @@ func (a *App) loadPersistedSessions() error {
 		}
 
 		ag := agent.New(a.client, a.registry, a.agentConfig())
-		ag.SetMessages(stored.Messages)
+		agentMessages := append([]api.Message(nil), stored.AgentMessages...)
+		if len(agentMessages) == 0 {
+			agentMessages = append([]api.Message(nil), stored.Messages...)
+		}
+		ag.SetMessages(agentMessages)
 		a.sessions[stored.ID] = &Session{
-			ID:        stored.ID,
-			Name:      stored.Name,
-			Agent:     ag,
-			Messages:  stored.Messages,
-			Model:     stored.Model,
-			CreatedAt: stored.CreatedAt,
-			UpdatedAt: stored.UpdatedAt,
-			Usage:     stored.Usage,
-			LastRun:   stored.LastRun,
+			ID:             stored.ID,
+			Name:           stored.Name,
+			Agent:          ag,
+			Messages:       stored.Messages,
+			AgentMessages:  ag.Messages(),
+			ContextSummary: stored.ContextSummary,
+			Model:          stored.Model,
+			CreatedAt:      stored.CreatedAt,
+			UpdatedAt:      stored.UpdatedAt,
+			Usage:          stored.Usage,
+			LastRun:        stored.LastRun,
 		}
 	}
 	return nil
@@ -124,23 +132,28 @@ func (a *App) deleteStoredSession(sessionID string) error {
 }
 
 func (a *App) sessionsDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return filepath.Abs(filepath.Join(".deephermes", "sessions"))
+	if a.cfg != nil {
+		return a.cfg.SessionsDir(), nil
 	}
-	return filepath.Join(home, ".deephermes", "sessions"), nil
+	return filepath.Abs(filepath.Join(".deephermes", "sessions"))
 }
 
 func snapshotSession(sess *Session) storedSession {
 	messages := append([]api.Message(nil), sess.Messages...)
+	agentMessages := append([]api.Message(nil), sess.AgentMessages...)
+	if len(agentMessages) == 0 {
+		agentMessages = append([]api.Message(nil), messages...)
+	}
 	return storedSession{
-		ID:        sess.ID,
-		Name:      sess.Name,
-		Model:     sess.Model,
-		Messages:  messages,
-		CreatedAt: sess.CreatedAt,
-		UpdatedAt: sess.UpdatedAt,
-		Usage:     sess.Usage,
-		LastRun:   sess.LastRun,
+		ID:             sess.ID,
+		Name:           sess.Name,
+		Model:          sess.Model,
+		Messages:       messages,
+		AgentMessages:  agentMessages,
+		ContextSummary: sess.ContextSummary,
+		CreatedAt:      sess.CreatedAt,
+		UpdatedAt:      sess.UpdatedAt,
+		Usage:          sess.Usage,
+		LastRun:        sess.LastRun,
 	}
 }

@@ -28,7 +28,14 @@ func TestSessionPersistenceRoundTrip(t *testing.T) {
 			{Role: "user", Content: "hello"},
 			{Role: "assistant", Content: "hi", ReasoningContent: "thinking"},
 		},
-		Usage: TokenUsage{TotalTokens: 42, PromptCacheHitTokens: 10},
+		AgentMessages: []api.Message{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", ReasoningContent: "need tool", ToolCalls: []api.ToolCall{{ID: "call_1", Type: "function"}}},
+			{Role: "tool", ToolCallID: "call_1", Content: "tool-result"},
+			{Role: "assistant", Content: "hi"},
+		},
+		ContextSummary: "Earlier plot and project state.",
+		Usage:          TokenUsage{TotalTokens: 42, PromptCacheHitTokens: 10},
 		LastRun: &RunMetrics{
 			Usage:        TokenUsage{TotalTokens: 42},
 			StartedAt:    now.Format(time.RFC3339),
@@ -54,6 +61,15 @@ func TestSessionPersistenceRoundTrip(t *testing.T) {
 	}
 	if got := loaded.Messages[1].ReasoningContent; got != "thinking" {
 		t.Fatalf("expected reasoning to persist, got %q", got)
+	}
+	if got := len(loaded.AgentMessages); got != 4 {
+		t.Fatalf("expected API history to persist, got %d messages", got)
+	}
+	if got := loaded.AgentMessages[1].ReasoningContent; got != "need tool" {
+		t.Fatalf("expected tool-call reasoning to persist in API history, got %q", got)
+	}
+	if got := loaded.ContextSummary; got != "Earlier plot and project state." {
+		t.Fatalf("expected context summary to persist, got %q", got)
 	}
 	if loaded.Usage.TotalTokens != 42 {
 		t.Fatalf("expected total tokens 42, got %d", loaded.Usage.TotalTokens)

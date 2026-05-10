@@ -13,11 +13,63 @@ interface FileEntry {
   children?: FileEntry[];
 }
 
+const TEXT_PREVIEW_EXTENSIONS = new Set([
+  ".c",
+  ".cmd",
+  ".conf",
+  ".css",
+  ".csv",
+  ".go",
+  ".h",
+  ".html",
+  ".ini",
+  ".js",
+  ".json",
+  ".jsx",
+  ".log",
+  ".md",
+  ".mjs",
+  ".ps1",
+  ".py",
+  ".rs",
+  ".sh",
+  ".sql",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".xml",
+  ".yaml",
+  ".yml",
+]);
+
+const TEXT_PREVIEW_NAMES = new Set(["dockerfile", "license", "makefile", "readme"]);
+const MAX_PREVIEW_BYTES = 512 * 1024;
+
 function formatBytes(value: number) {
   if (!value) return "";
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function extensionOf(name: string) {
+  const index = name.lastIndexOf(".");
+  return index > 0 ? name.slice(index).toLowerCase() : "";
+}
+
+function canPreviewText(entry: FileEntry) {
+  if (entry.isDir) return false;
+  if (entry.size > MAX_PREVIEW_BYTES) return false;
+  const lowerName = entry.name.toLowerCase();
+  return TEXT_PREVIEW_EXTENSIONS.has(extensionOf(lowerName)) || TEXT_PREVIEW_NAMES.has(lowerName);
+}
+
+function hasBinaryNoise(content: string) {
+  const sample = content.slice(0, 1200);
+  if (sample.includes("\u0000")) return true;
+  const noisy = sample.match(/[\u0001-\u0008\u000E-\u001F\uFFFD]/g)?.length ?? 0;
+  return sample.length > 0 && noisy / sample.length > 0.02;
 }
 
 export default function FileBrowser() {
@@ -26,6 +78,7 @@ export default function FileBrowser() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState("");
+  const [previewNotice, setPreviewNotice] = useState("");
   const filePanelWidth = useLayoutStore((s) => s.filePanelWidth);
   const setFilePanelWidth = useLayoutStore((s) => s.setFilePanelWidth);
   const { t } = useI18n();
@@ -60,19 +113,39 @@ export default function FileBrowser() {
     setExpanded(next);
   };
 
-  const openFile = async (path: string) => {
-    if (path === previewPath) {
+  const openFile = async (entry: FileEntry) => {
+    if (entry.path === previewPath) {
       setPreviewPath(null);
       setPreviewContent("");
+      setPreviewNotice("");
+      return;
+    }
+    setPreviewPath(entry.path);
+    setPreviewContent("");
+    if (entry.size > MAX_PREVIEW_BYTES) {
+      setPreviewNotice(t("files.previewTooLarge"));
+      return;
+    }
+    if (!canPreviewText(entry)) {
+      setPreviewNotice(t("files.previewUnsupported"));
       return;
     }
     try {
-      const content = await ReadFileContent(path);
-      setPreviewPath(path);
+      const content = await ReadFileContent(entry.path);
+      if (!content) {
+        setPreviewNotice(t("files.previewEmpty"));
+        return;
+      }
+      if (hasBinaryNoise(content)) {
+        setPreviewNotice(t("files.previewUnsupported"));
+        setPreviewContent("");
+        return;
+      }
       setPreviewContent(content);
+      setPreviewNotice("");
     } catch {
-      setPreviewPath(null);
       setPreviewContent("");
+      setPreviewNotice(t("files.previewFailed"));
     }
   };
 
@@ -88,7 +161,7 @@ export default function FileBrowser() {
             if (entry.isDir) {
               toggleDir(entry.path);
             } else {
-              openFile(entry.path);
+              openFile(entry);
             }
           }}
         >
@@ -137,7 +210,7 @@ export default function FileBrowser() {
         {isOpen ? (
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-dim">{t("files.title")}</p>
-            <p className="mt-1 truncate text-xs text-dim">{previewPath ? previewPath : "Workspace"}</p>
+            <p className="mt-1 truncate text-xs text-dim">{previewPath ? previewPath : t("files.workspace")}</p>
           </div>
         ) : (
           <PanelRight size={15} className="mx-auto text-dim" />
@@ -150,7 +223,7 @@ export default function FileBrowser() {
                 refreshFiles();
               }}
               className="icon-button h-7 w-7"
-              title="Refresh"
+              title={t("files.refresh")}
             >
               <RefreshCw size={13} />
             </button>
@@ -158,7 +231,7 @@ export default function FileBrowser() {
           <button
             onClick={() => setIsOpen(!isOpen)}
             className="icon-button h-7 w-7"
-            title={isOpen ? "Collapse" : "Expand"}
+            title={isOpen ? t("files.collapse") : t("files.expand")}
           >
             {isOpen ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
           </button>
@@ -169,14 +242,18 @@ export default function FileBrowser() {
         <>
           <div className="flex-1 overflow-y-auto py-2">{renderTree(files)}</div>
 
-          {previewPath && previewContent && (
+          {previewPath && (previewContent || previewNotice) && (
             <div className="h-56 overflow-y-auto border-t border-border bg-bg/42">
               <div className="truncate border-b border-border px-3 py-2 text-xs font-medium text-text">
                 {previewPath.split("/").pop() || previewPath.split("\\").pop()}
               </div>
-              <pre className="system-pre whitespace-pre-wrap p-3 font-mono text-xs leading-5 text-text">
-                {previewContent.slice(0, 5000)}
-              </pre>
+              {previewNotice ? (
+                <div className="px-3 py-4 text-xs leading-5 text-dim">{previewNotice}</div>
+              ) : (
+                <pre className="system-pre whitespace-pre-wrap p-3 font-mono text-xs leading-5 text-text">
+                  {previewContent.slice(0, 5000)}
+                </pre>
+              )}
             </div>
           )}
         </>

@@ -9,11 +9,17 @@ DeepHermes is a Windows desktop agent client optimized for DeepSeek models. It i
 - DeepSeek API key setup and local configuration persistence.
 - Default model profile tuned for `deepseek-v4-pro`.
 - Persistent chat sessions restored across app restarts.
+- Message editing, deletion, regeneration, and branch-from-message workflows.
 - Streaming chat UI with reasoning content support and display controls.
 - Token usage, output speed, reasoning token, and DeepSeek cache hit/miss tracking.
+- DeepSeek model profiles for V4 Pro and V4 Flash, including context window, output limits, recommended parameters, legacy-model warnings, and estimated CNY cost.
+- Custom initial system prompt with tavern-style roleplay and interactive-fiction presets.
+- Role card and world book fields for lightweight tavern-style roleplay setup.
 - Agent workspace panels for files, sessions, status, and cowork/subagent flows.
 - Resizable session and file sidebars with persisted layout preference.
-- Light and dark themes with persisted preference.
+- Portable mode, settings import/export, diagnostics, build metadata, and persisted window size/position.
+- Optional close-to-background behavior with single-instance relaunch restoring the hidden window.
+- Light, dark, and fresh anime themes with persisted preference.
 - DeepSeek-inspired interface styling with smooth panel, button, and empty-state animations.
 - Correct Windows desktop packaging through Wails build tags.
 
@@ -71,6 +77,14 @@ The executable is written to:
 build\bin\DeepHermes.exe
 ```
 
+To build a Windows NSIS installer, use:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1 -Version 1.0.0
+```
+
+This uses the Wails CLI with `-nsis`, `-platform windows/amd64`, and the same `desktop,production` build tags. NSIS packaging requires the Wails toolchain and its Windows packaging prerequisites to be installed locally.
+
 Do not package this app with a plain `go build` command. Wails desktop builds need the correct build tags. Without them, the executable can show this error:
 
 ```text
@@ -89,11 +103,24 @@ Default settings live in `config.yaml`:
 
 ```yaml
 model: deepseek-v4-pro
+mode: code
+portable: false
+minimize_to_tray: false
 max_tokens: 32768
 temperature: 0.7
 thinking_enabled: false
+reasoning_display: collapse
 auto_cowork: false
+initial_prompt: ""
+role_card: ""
+world_book: ""
 ```
+
+DeepSeek model prices are used only for local estimates in the UI. Prices can change, so check the official DeepSeek pricing page before treating estimates as billing truth.
+
+The initial prompt, role card, and world book are injected as stable system-prompt sections for each request. Keep long-lived writing instructions there to improve continuity and make DeepSeek context caching more effective.
+
+When `portable: true` is enabled, configuration and sessions are written to `DeepHermesData` next to the executable. When `minimize_to_tray: true` is enabled, closing the window hides it in the background; launching the exe again restores the existing window.
 
 You can override the DeepSeek API key with:
 

@@ -5,20 +5,26 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
 
 type Bash struct{}
 
-func (t *Bash) Name() string        { return "bash" }
-func (t *Bash) Description() string { return "Execute a shell command. Returns stdout and stderr output." }
+func (t *Bash) Name() string { return "bash" }
+func (t *Bash) Description() string {
+	if runtime.GOOS == "windows" {
+		return "Execute a Windows PowerShell command. Returns stdout and stderr output."
+	}
+	return "Execute a shell command. Returns stdout and stderr output."
+}
 func (t *Bash) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"command": map[string]any{
 				"type":        "string",
-				"description": "The shell command to execute",
+				"description": shellCommandDescription(),
 			},
 			"timeout": map[string]any{
 				"type":        "integer",
@@ -40,7 +46,9 @@ func GetWorkingDir() string    { return workingDir }
 
 func getShell() string {
 	if runtime.GOOS == "windows" {
-		// Try PowerShell first, fall back to cmd
+		if _, err := exec.LookPath("pwsh.exe"); err == nil {
+			return "pwsh.exe"
+		}
 		if _, err := exec.LookPath("powershell.exe"); err == nil {
 			return "powershell.exe"
 		}
@@ -51,13 +59,61 @@ func getShell() string {
 
 func getShellArgs(shell, command string) []string {
 	switch shell {
+	case "pwsh.exe":
+		return []string{"-NoProfile", "-NonInteractive", "-Command", command}
 	case "powershell.exe":
-		return []string{"-NoProfile", "-Command", command}
+		return []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", normalizeWindowsPowerShellCommand(command)}
 	case "cmd":
 		return []string{"/C", command}
 	default:
 		return []string{"-c", command}
 	}
+}
+
+func shellCommandDescription() string {
+	if runtime.GOOS == "windows" {
+		return "The Windows PowerShell command to execute. Use PowerShell syntax; use ';' to chain commands instead of '&&'."
+	}
+	return "The shell command to execute"
+}
+
+func normalizeWindowsPowerShellCommand(command string) string {
+	if !strings.Contains(command, "&&") {
+		return command
+	}
+
+	var b strings.Builder
+	b.Grow(len(command))
+	inSingle := false
+	inDouble := false
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		if ch == '`' && !inSingle {
+			b.WriteByte(ch)
+			if i+1 < len(command) {
+				i++
+				b.WriteByte(command[i])
+			}
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			b.WriteByte(ch)
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			b.WriteByte(ch)
+			continue
+		}
+		if !inSingle && !inDouble && ch == '&' && i+1 < len(command) && command[i+1] == '&' {
+			b.WriteByte(';')
+			i++
+			continue
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
 }
 
 func (t *Bash) Execute(ctx context.Context, args map[string]any) (string, error) {

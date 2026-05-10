@@ -5,12 +5,18 @@ type EventHandler = (...data: any[]) => void;
 
 const defaultSettings = {
   model: "deepseek-v4-pro",
+  mode: "code",
+  portable: false,
+  minimizeToTray: false,
   maxTokens: 32768,
   temperature: 0.7,
   baseUrl: "https://api.deepseek.com",
   thinkingEnabled: false,
   reasoningDisplay: "collapse",
   autoCowork: false,
+  initialPrompt: "",
+  roleCard: "",
+  worldBook: "",
 };
 
 function hasWailsBridge() {
@@ -46,6 +52,30 @@ export function ListSessions() {
 
 export function SendMessage(req: any) {
   return invoke(() => AppBindings.SendMessage(req), () => undefined);
+}
+
+export function UpdateMessage(req: any) {
+  return invoke(() => AppBindings.UpdateMessage(req), () => undefined);
+}
+
+export function DeleteMessageAt(req: any) {
+  return invoke(() => AppBindings.DeleteMessage(req), () => undefined);
+}
+
+export function RegenerateMessage(req: any) {
+  return invoke(() => AppBindings.RegenerateMessage(req), () => undefined);
+}
+
+export function BranchSession(req: any) {
+  return invoke(
+    () => AppBindings.BranchSession(req),
+    () => ({
+      id: `preview-branch-${Date.now()}`,
+      name: "Branch",
+      model: defaultSettings.model,
+      createdAt: new Date().toISOString(),
+    })
+  );
 }
 
 export function AbortMessage(sessionId: string) {
@@ -85,6 +115,52 @@ export function GetSettings() {
   return invoke(
     () => AppBindings.GetSettings(),
     () => (stored ? { ...defaultSettings, ...JSON.parse(stored) } : defaultSettings)
+  );
+}
+
+export function ExportSettings() {
+  return invoke(() => AppBindings.ExportSettings(), () => "preview-settings.yaml");
+}
+
+export function ImportSettings() {
+  return invoke(() => AppBindings.ImportSettings(), () => undefined);
+}
+
+export function HideMainWindow() {
+  return invoke(() => AppBindings.HideMainWindow(), () => undefined);
+}
+
+export function RestoreMainWindow() {
+  return invoke(() => AppBindings.RestoreMainWindow(), () => undefined);
+}
+
+export function QuitApp() {
+  return invoke(() => AppBindings.QuitApp(), () => undefined);
+}
+
+export function GetDiagnostics() {
+  return invoke<any>(
+    () => AppBindings.GetDiagnostics(),
+    () => ({
+      version: "1.0.0",
+      buildCommit: "preview",
+      buildDate: "preview",
+      goVersion: "preview",
+      platform: "browser",
+      arch: "wasm",
+      configPath: "preview",
+      dataDir: "preview",
+      sessionsDir: "preview",
+      portable: false,
+      minimizeToTray: defaultSettings.minimizeToTray,
+      model: defaultSettings.model,
+      mode: defaultSettings.mode,
+      baseUrl: defaultSettings.baseUrl,
+      apiKeyStatus: localStorage.getItem("deephermes.preview.apiKeyStatus") || "missing",
+      sessionCount: 0,
+      memoryDir: "preview",
+      recentLogs: [],
+    })
   );
 }
 
@@ -157,6 +233,22 @@ export function WindowToggleMaximise() {
 
 export function WindowIsMaximised() {
   return invoke(() => RuntimeBindings.WindowIsMaximised(), () => false);
+}
+
+export function WindowGetSize() {
+  return invoke(() => RuntimeBindings.WindowGetSize(), () => ({ w: 1200, h: 800 }));
+}
+
+export function WindowSetSize(width: number, height: number) {
+  if (hasWailsBridge()) RuntimeBindings.WindowSetSize(width, height);
+}
+
+export function WindowGetPosition() {
+  return invoke(() => RuntimeBindings.WindowGetPosition(), () => ({ x: 120, y: 80 }));
+}
+
+export function WindowSetPosition(x: number, y: number) {
+  if (hasWailsBridge()) RuntimeBindings.WindowSetPosition(x, y);
 }
 
 export function Quit() {

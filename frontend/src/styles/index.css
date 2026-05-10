@@ -38,6 +38,24 @@
   --line-strong: rgb(92 221 206 / 13%);
 }
 
+:root[data-theme="anime"] {
+  --color-bg: 255 248 251;
+  --color-surface: 255 255 255;
+  --color-panel: 255 239 247;
+  --color-border: 235 211 224;
+  --color-text: 65 53 73;
+  --color-dim: 130 103 126;
+  --color-accent: 255 124 172;
+  --color-accent-alt: 78 198 185;
+  --color-green: 72 176 128;
+  --color-yellow: 215 159 52;
+  --color-red: 226 78 112;
+  --shadow-elevated: 0 24px 60px rgb(192 103 146 / 18%);
+  --shadow-soft: 0 14px 36px rgb(192 103 146 / 12%);
+  --line-weak: rgb(255 124 172 / 9%);
+  --line-strong: rgb(78 198 185 / 13%);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -176,6 +194,16 @@ code {
   transition: background-color 260ms ease;
 }
 
+:root[data-theme="anime"] .app-shell,
+:root[data-theme="anime"] .welcome-shell {
+  background:
+    linear-gradient(90deg, var(--line-weak) 1px, transparent 1px),
+    linear-gradient(0deg, rgb(var(--color-accent-alt) / 0.08) 1px, transparent 1px),
+    repeating-linear-gradient(135deg, transparent 0 18px, rgb(var(--color-accent) / 0.04) 18px 20px),
+    linear-gradient(180deg, rgb(255 253 246 / 0.82), rgb(var(--color-bg)));
+  background-size: 38px 38px, 38px 38px, 100% 100%, 100% 100%;
+}
+
 .app-shell::before,
 .welcome-shell::before {
   content: "";
@@ -188,12 +216,29 @@ code {
   opacity: 0.9;
 }
 
+.app-shell::after,
+.welcome-shell::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+
+:root[data-theme="anime"] .app-shell::after,
+:root[data-theme="anime"] .welcome-shell::after {
+  background:
+    linear-gradient(90deg, transparent 0 10%, rgb(var(--color-accent-alt) / 0.12) 10% 10.4%, transparent 10.4% 100%),
+    linear-gradient(180deg, rgb(var(--color-accent) / 0.06), transparent 190px);
+}
+
 .app-content {
   position: relative;
   z-index: 1;
 }
 
 .panel-card {
+  border-radius: 8px;
   background: rgb(var(--color-surface) / 0.86);
   box-shadow: var(--shadow-elevated);
   backdrop-filter: blur(18px);
@@ -210,10 +255,179 @@ code {
     rgb(var(--color-bg) / 0.58);
 }
 
+:root[data-theme="anime"] .workspace-main {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.58), transparent 150px),
+    repeating-linear-gradient(90deg, transparent 0 34px, rgb(var(--color-accent-alt) / 0.035) 34px 36px),
+    rgb(var(--color-bg) / 0.7);
+}
+
 .workspace-header {
+  position: relative;
+  z-index: 40;
+  overflow: visible;
   background: rgb(var(--color-surface) / 0.72);
   backdrop-filter: blur(18px);
   box-shadow: inset 0 -1px 0 rgb(var(--color-border));
+}
+
+:root[data-theme="anime"] .workspace-header {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.88), rgb(var(--color-panel) / 0.72));
+  box-shadow: inset 0 -1px 0 rgb(var(--color-border)), 0 10px 30px rgb(var(--color-accent) / 0.08);
+}
+
+.chat-header-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  min-width: 0;
+}
+
+.chat-header-layout > :first-child {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.status-bar {
+  min-width: 0;
+}
+
+.usage-popover-anchor {
+  position: relative;
+  z-index: 45;
+  flex: 0 0 auto;
+}
+
+.usage-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  height: 2rem;
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 999px;
+  background: rgb(var(--color-bg) / 0.68);
+  color: rgb(var(--color-dim));
+  padding: 0 0.7rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.usage-button:hover {
+  transform: translateY(-1px);
+  border-color: rgb(var(--color-accent) / 0.35);
+  background: rgb(var(--color-panel));
+  color: rgb(var(--color-text));
+}
+
+.usage-popover {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 80;
+  width: min(23rem, calc(100vw - 2rem));
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 8px;
+  background: rgb(var(--color-surface) / 0.96);
+  box-shadow: var(--shadow-elevated);
+  backdrop-filter: blur(18px);
+  padding: 0.85rem;
+}
+
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.context-budget-card {
+  margin-bottom: 0.75rem;
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 8px;
+  background: rgb(var(--color-bg) / 0.58);
+  padding: 0.75rem;
+}
+
+.context-budget-track {
+  height: 0.45rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(var(--color-border) / 0.6);
+}
+
+.context-budget-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgb(var(--color-accent-alt)), rgb(var(--color-accent)));
+  transition: width 220ms ease;
+}
+
+.usage-card {
+  min-width: 0;
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 8px;
+  background: rgb(var(--color-bg) / 0.62);
+  padding: 0.65rem;
+}
+
+.usage-card-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  color: rgb(var(--color-dim));
+  font-size: 0.7rem;
+}
+
+.usage-card strong {
+  display: block;
+  margin-top: 0.3rem;
+  color: rgb(var(--color-text));
+  font-size: 0.88rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+:root[data-theme="anime"] .usage-button,
+:root[data-theme="anime"] .usage-popover,
+:root[data-theme="anime"] .usage-card,
+:root[data-theme="anime"] .context-budget-card {
+  border-color: rgb(var(--color-accent) / 0.2);
+}
+
+:root[data-theme="anime"] .usage-popover {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.96), rgb(var(--color-panel) / 0.9));
+}
+
+@media (max-width: 720px) {
+  .chat-header-layout {
+    align-items: flex-start;
+  }
+
+  .usage-popover-anchor {
+    width: 100%;
+  }
+
+  .usage-button {
+    width: 100%;
+  }
+
+  .usage-popover {
+    left: 0;
+    right: auto;
+    width: min(100%, calc(100vw - 2rem));
+  }
+
+  .usage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .status-bar {
+    gap: 0.5rem;
+    padding-inline: 0.75rem;
+  }
 }
 
 .rail-panel {
@@ -221,11 +435,16 @@ code {
   backdrop-filter: blur(18px);
 }
 
+:root[data-theme="anime"] .rail-panel {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(var(--color-panel) / 0.78));
+}
+
 .nav-card {
   position: relative;
   background: rgb(var(--color-bg) / 0.44);
   border: 1px solid transparent;
-  transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  border-radius: 8px;
+  transition: transform 180ms cubic-bezier(.2,.85,.2,1), border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
 }
 
 .nav-card:hover {
@@ -240,6 +459,12 @@ code {
   box-shadow: inset 3px 0 0 rgb(var(--color-accent)), var(--shadow-soft);
 }
 
+:root[data-theme="anime"] .nav-card-active {
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.88), rgb(var(--color-panel) / 0.92));
+  border-color: rgb(var(--color-accent) / 0.38);
+  box-shadow: inset 3px 0 0 rgb(var(--color-accent-alt)), var(--shadow-soft);
+}
+
 .metric-pill {
   display: inline-flex;
   align-items: center;
@@ -250,13 +475,19 @@ code {
   border-radius: 999px;
   padding: 0.35rem 0.6rem;
   white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+
+:root[data-theme="anime"] .metric-pill {
+  background: rgb(255 255 255 / 0.72);
+  border-color: rgb(var(--color-accent) / 0.20);
 }
 
 .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0.375rem;
+  border-radius: 0.5rem;
   color: rgb(var(--color-dim));
   transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
 }
@@ -269,6 +500,7 @@ code {
 
 .message-card {
   border: 1px solid rgb(var(--color-border));
+  border-radius: 8px;
   background: rgb(var(--color-surface) / 0.82);
   box-shadow: 0 10px 34px rgb(0 0 0 / 0.06);
 }
@@ -278,11 +510,28 @@ code {
   background: rgb(var(--color-accent) / 0.09);
 }
 
+:root[data-theme="anime"] .message-card {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.92), rgb(255 250 253 / 0.9));
+  border-color: rgb(var(--color-border));
+  box-shadow: 0 14px 34px rgb(var(--color-accent) / 0.10);
+}
+
+:root[data-theme="anime"] .message-card-user {
+  background: linear-gradient(135deg, rgb(var(--color-accent) / 0.16), rgb(var(--color-accent-alt) / 0.10));
+  border-color: rgb(var(--color-accent) / 0.32);
+}
+
 .composer-shell {
+  border-radius: 8px;
   background: rgb(var(--color-surface) / 0.82);
   border: 1px solid rgb(var(--color-border));
   box-shadow: 0 22px 60px rgb(0 0 0 / 0.10);
   backdrop-filter: blur(18px);
+}
+
+:root[data-theme="anime"] .composer-shell {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(var(--color-panel) / 0.76));
+  box-shadow: 0 24px 58px rgb(var(--color-accent) / 0.16);
 }
 
 .resize-handle {
@@ -318,13 +567,37 @@ code {
   animation: message-in 240ms ease both;
 }
 
+.message-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 0.35rem;
+  color: rgb(var(--color-dim));
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.message-action:hover {
+  transform: translateY(-1px);
+  background: rgb(var(--color-panel));
+  color: rgb(var(--color-accent));
+}
+
 .theme-toggle-track {
   background: rgb(var(--color-panel));
   box-shadow: inset 0 0 0 1px rgb(var(--color-border));
 }
 
+:root[data-theme="anime"] .theme-toggle-track {
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / 0.8), rgb(var(--color-panel) / 0.95)),
+    rgb(var(--color-panel));
+}
+
 .ds-mark {
   position: relative;
+  overflow: visible;
 }
 
 .ds-mark::after {
@@ -335,6 +608,19 @@ code {
   border-radius: 9px;
   opacity: 0;
   animation: mark-pulse 3.2s ease-in-out infinite;
+}
+
+:root[data-theme="anime"] .ds-mark::before {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: rgb(var(--color-accent-alt));
+  transform: rotate(45deg);
+  box-shadow: -10px 18px 0 -2px rgb(var(--color-accent) / 0.85);
 }
 
 /* Streaming cursor animation */

@@ -15,7 +15,7 @@ export namespace api {
 	    }
 	}
 	export class ToolCall {
-	    index: number;
+	    index?: number;
 	    id: string;
 	    type: string;
 	    function: FunctionCall;
@@ -52,7 +52,7 @@ export namespace api {
 	}
 	export class Message {
 	    role: string;
-	    content?: string;
+	    content: string;
 	    reasoning_content?: string;
 	    tool_calls?: ToolCall[];
 	    tool_call_id?: string;
@@ -95,14 +95,100 @@ export namespace api {
 
 export namespace app {
 	
+	export class DiagnosticLog {
+	    time: string;
+	    level: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiagnosticLog(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.time = source["time"];
+	        this.level = source["level"];
+	        this.message = source["message"];
+	    }
+	}
+	export class AppDiagnostics {
+	    version: string;
+	    buildCommit: string;
+	    buildDate: string;
+	    goVersion: string;
+	    platform: string;
+	    arch: string;
+	    configPath: string;
+	    dataDir: string;
+	    sessionsDir: string;
+	    portable: boolean;
+	    minimizeToTray: boolean;
+	    model: string;
+	    mode: string;
+	    baseUrl: string;
+	    apiKeyStatus: string;
+	    sessionCount: number;
+	    memoryDir: string;
+	    recentLogs: DiagnosticLog[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AppDiagnostics(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.buildCommit = source["buildCommit"];
+	        this.buildDate = source["buildDate"];
+	        this.goVersion = source["goVersion"];
+	        this.platform = source["platform"];
+	        this.arch = source["arch"];
+	        this.configPath = source["configPath"];
+	        this.dataDir = source["dataDir"];
+	        this.sessionsDir = source["sessionsDir"];
+	        this.portable = source["portable"];
+	        this.minimizeToTray = source["minimizeToTray"];
+	        this.model = source["model"];
+	        this.mode = source["mode"];
+	        this.baseUrl = source["baseUrl"];
+	        this.apiKeyStatus = source["apiKeyStatus"];
+	        this.sessionCount = source["sessionCount"];
+	        this.memoryDir = source["memoryDir"];
+	        this.recentLogs = this.convertValues(source["recentLogs"], DiagnosticLog);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class AppSettings {
 	    model: string;
+	    mode: string;
+	    portable: boolean;
+	    minimizeToTray: boolean;
 	    maxTokens: number;
 	    temperature: number;
 	    baseUrl: string;
 	    thinkingEnabled: boolean;
 	    reasoningDisplay: string;
 	    autoCowork: boolean;
+	    initialPrompt: string;
+	    roleCard: string;
+	    worldBook: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -111,12 +197,34 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.model = source["model"];
+	        this.mode = source["mode"];
+	        this.portable = source["portable"];
+	        this.minimizeToTray = source["minimizeToTray"];
 	        this.maxTokens = source["maxTokens"];
 	        this.temperature = source["temperature"];
 	        this.baseUrl = source["baseUrl"];
 	        this.thinkingEnabled = source["thinkingEnabled"];
 	        this.reasoningDisplay = source["reasoningDisplay"];
 	        this.autoCowork = source["autoCowork"];
+	        this.initialPrompt = source["initialPrompt"];
+	        this.roleCard = source["roleCard"];
+	        this.worldBook = source["worldBook"];
+	    }
+	}
+	export class BranchSessionRequest {
+	    sessionId: string;
+	    upToIndex: number;
+	    nameSuffix: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BranchSessionRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.upToIndex = source["upToIndex"];
+	        this.nameSuffix = source["nameSuffix"];
 	    }
 	}
 	export class CreateSessionResult {
@@ -137,6 +245,7 @@ export namespace app {
 	        this.createdAt = source["createdAt"];
 	    }
 	}
+	
 	export class FileEntry {
 	    name: string;
 	    path: string;
@@ -175,18 +284,18 @@ export namespace app {
 		    return a;
 		}
 	}
-	export class SendMessageRequest {
+	export class MessageIndexRequest {
 	    sessionId: string;
-	    message: string;
+	    index: number;
 	
 	    static createFrom(source: any = {}) {
-	        return new SendMessageRequest(source);
+	        return new MessageIndexRequest(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sessionId = source["sessionId"];
-	        this.message = source["message"];
+	        this.index = source["index"];
 	    }
 	}
 	export class TokenUsage {
@@ -253,6 +362,20 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class SendMessageRequest {
+	    sessionId: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SendMessageRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.message = source["message"];
+	    }
+	}
 	export class SessionInfo {
 	    id: string;
 	    name: string;
@@ -262,6 +385,7 @@ export namespace app {
 	    msgCount: number;
 	    usage: TokenUsage;
 	    lastRun?: RunMetrics;
+	    contextSummaryTokens: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SessionInfo(source);
@@ -277,6 +401,7 @@ export namespace app {
 	        this.msgCount = source["msgCount"];
 	        this.usage = this.convertValues(source["usage"], TokenUsage);
 	        this.lastRun = this.convertValues(source["lastRun"], RunMetrics);
+	        this.contextSummaryTokens = source["contextSummaryTokens"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -337,6 +462,7 @@ export namespace app {
 	        this.result = source["result"];
 	    }
 	}
+	
 	export class ToolInfo {
 	    name: string;
 	    description: string;
@@ -351,5 +477,22 @@ export namespace app {
 	        this.description = source["description"];
 	    }
 	}
+	export class UpdateMessageRequest {
+	    sessionId: string;
+	    index: number;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateMessageRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.index = source["index"];
+	        this.content = source["content"];
+	    }
+	}
 
 }
+

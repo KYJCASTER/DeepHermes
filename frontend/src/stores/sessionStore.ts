@@ -1,5 +1,16 @@
 import { create } from "zustand";
-import { AbortMessage, CreateSession, DeleteSession, GetHistory, ListSessions, SendMessage } from "../lib/wails";
+import {
+  AbortMessage,
+  BranchSession,
+  CreateSession,
+  DeleteMessageAt,
+  DeleteSession,
+  GetHistory,
+  ListSessions,
+  RegenerateMessage,
+  SendMessage,
+  UpdateMessage,
+} from "../lib/wails";
 
 export interface Message {
   role: string;
@@ -38,6 +49,7 @@ export interface Session {
   status: "idle" | "thinking" | "streaming" | "executing";
   usage: TokenUsage;
   lastRun?: RunMetrics;
+  contextSummaryTokens?: number;
 }
 
 interface SessionStore {
@@ -49,6 +61,10 @@ interface SessionStore {
   deleteSession: (id: string) => void;
   setActiveSession: (id: string) => void;
   sendMessage: (sessionId: string, message: string) => Promise<void>;
+  editMessage: (sessionId: string, index: number, content: string) => Promise<void>;
+  deleteMessage: (sessionId: string, index: number) => Promise<void>;
+  regenerateMessage: (sessionId: string, index: number) => Promise<void>;
+  branchSession: (sessionId: string, upToIndex: number) => Promise<string>;
   abortMessage: (sessionId: string) => Promise<void>;
   appendToStream: (sessionId: string, content: string, reasoningContent?: string) => void;
   finishStream: (sessionId: string, metrics?: RunMetrics) => void;
@@ -104,6 +120,7 @@ function normalizeSession(raw: any, messages: Message[] = []): Session {
     status: "idle",
     usage: normalizeUsage(raw.usage),
     lastRun: raw.lastRun,
+    contextSummaryTokens: raw.contextSummaryTokens ?? 0,
   };
 }
 
@@ -174,6 +191,77 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       get().finishStream(sessionId);
       throw e;
     }
+  },
+
+  editMessage: async (sessionId: string, index: number, content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    set((state) => ({
+      sessions: state.sessions.map((s) => {
+        if (s.id !== sessionId) return s;
+        const messages = s.messages.map((msg, i) => (i === index ? { ...msg, content: trimmed } : msg));
+        return { ...s, messages };
+      }),
+    }));
+    await UpdateMessage({ sessionId, index, content: trimmed });
+  },
+
+  deleteMessage: async (sessionId: string, index: number) => {
+    set((state) => ({
+      sessions: state.sessions.map((s) => {
+        if (s.id !== sessionId) return s;
+        const messages = s.messages.filter((_, i) => i !== index);
+        return { ...s, messages, msgCount: messages.length };
+      }),
+    }));
+    await DeleteMessageAt({ sessionId, index });
+  },
+
+  regenerateMessage: async (sessionId: string, index: number) => {
+    let keepUntil = index;
+    const session = get().sessions.find((s) => s.id === sessionId);
+    if (session?.messages[index]?.role === "assistant") {
+      keepUntil = index - 1;
+    }
+    set((state) => ({
+      sessions: state.sessions.map((s) => {
+        if (s.id !== sessionId) return s;
+        const messages = s.messages.slice(0, Math.max(0, keepUntil) + 1);
+        return {
+          ...s,
+          messages,
+          msgCount: messages.length,
+          streaming: true,
+          status: "thinking" as const,
+        };
+      }),
+    }));
+    try {
+      await RegenerateMessage({ sessionId, index });
+    } catch (e: any) {
+      const detail = e?.message || String(e);
+      get().appendToStream(sessionId, `\n\nRequest failed: ${detail}`);
+      get().finishStream(sessionId);
+      throw e;
+    }
+  },
+
+  branchSession: async (sessionId: string, upToIndex: number) => {
+    const result = await BranchSession({ sessionId, upToIndex, nameSuffix: "Branch" });
+    const history = await GetHistory(result.id);
+    const session = normalizeSession(
+      {
+        ...result,
+        usage: emptyUsage(),
+        msgCount: history?.length ?? 0,
+      },
+      (history || []).map(normalizeMessage)
+    );
+    set((state) => ({
+      sessions: [session, ...state.sessions],
+      activeSessionId: result.id,
+    }));
+    return result.id;
   },
 
   abortMessage: async (sessionId: string) => {

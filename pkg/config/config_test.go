@@ -11,8 +11,20 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Model != "deepseek-v4-pro" {
 		t.Errorf("expected deepseek-v4-pro, got %s", cfg.Model)
 	}
+	if cfg.Mode != "code" {
+		t.Errorf("expected code mode, got %s", cfg.Mode)
+	}
 	if cfg.MaxTokens != 32768 {
 		t.Errorf("expected 32768, got %d", cfg.MaxTokens)
+	}
+	if cfg.ReasoningDisplay != "collapse" {
+		t.Errorf("expected collapse reasoning display, got %s", cfg.ReasoningDisplay)
+	}
+	if cfg.InitialPrompt != "" {
+		t.Errorf("expected empty initial prompt, got %q", cfg.InitialPrompt)
+	}
+	if cfg.RoleCard != "" || cfg.WorldBook != "" {
+		t.Errorf("expected empty roleplay fields, got role=%q world=%q", cfg.RoleCard, cfg.WorldBook)
 	}
 	if cfg.API.BaseURL != "https://api.deepseek.com" {
 		t.Errorf("expected base URL, got %s", cfg.API.BaseURL)
@@ -27,8 +39,15 @@ func TestLoadConfigFromFile(t *testing.T) {
 
 	path := filepath.Join(dir, "config.yaml")
 	content := `model: deepseek-reasoner
+mode: rp
 max_tokens: 4096
 temperature: 0.5
+initial_prompt: |
+  Stay in character.
+role_card: |
+  Name: Mira
+world_book: |
+  City: Lumen
 `
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -41,11 +60,20 @@ temperature: 0.5
 	if cfg.Model != "deepseek-reasoner" {
 		t.Errorf("expected deepseek-reasoner, got %s", cfg.Model)
 	}
+	if cfg.Mode != "rp" {
+		t.Errorf("expected rp mode, got %s", cfg.Mode)
+	}
 	if cfg.MaxTokens != 4096 {
 		t.Errorf("expected 4096, got %d", cfg.MaxTokens)
 	}
 	if cfg.Temperature != 0.5 {
 		t.Errorf("expected 0.5, got %f", cfg.Temperature)
+	}
+	if cfg.InitialPrompt != "Stay in character.\n" {
+		t.Errorf("expected initial prompt to load, got %q", cfg.InitialPrompt)
+	}
+	if cfg.RoleCard != "Name: Mira\n" || cfg.WorldBook != "City: Lumen\n" {
+		t.Errorf("expected roleplay fields to load, got role=%q world=%q", cfg.RoleCard, cfg.WorldBook)
 	}
 }
 

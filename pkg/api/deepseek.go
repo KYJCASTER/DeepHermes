@@ -100,6 +100,28 @@ type CompletionTokensDetails struct {
 	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
+type APIError struct {
+	StatusCode int
+	Code       string
+	Message    string
+	Type       string
+}
+
+func (e *APIError) Error() string {
+	if e == nil {
+		return "DeepSeek API error"
+	}
+	detail := e.Message
+	if detail == "" {
+		detail = http.StatusText(e.StatusCode)
+	}
+	prefix := fmt.Sprintf("DeepSeek API %d", e.StatusCode)
+	if e.Code != "" {
+		prefix += " " + e.Code
+	}
+	return prefix + ": " + detail
+}
+
 type StreamChunk struct {
 	Choices []Choice `json:"choices"`
 	Usage   *Usage   `json:"usage,omitempty"`
@@ -237,18 +259,72 @@ func (c *Client) do(req *http.Request, cfg clientSnapshot) (*http.Response, erro
 			continue
 		}
 		if resp.StatusCode == 429 || resp.StatusCode >= 500 {
+			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			lastErr = fmt.Errorf("status %d", resp.StatusCode)
+			lastErr = parseAPIError(resp.StatusCode, body)
 			continue
 		}
 		if resp.StatusCode != 200 {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+			return nil, parseAPIError(resp.StatusCode, body)
 		}
 		return resp, nil
 	}
 	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+func parseAPIError(statusCode int, body []byte) error {
+	var wrapped struct {
+		Error struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+		} `json:"error"`
+		Message string `json:"message"`
+		Code    string `json:"code"`
+		Type    string `json:"type"`
+	}
+	_ = json.Unmarshal(body, &wrapped)
+
+	message := strings.TrimSpace(wrapped.Error.Message)
+	code := strings.TrimSpace(wrapped.Error.Code)
+	errType := strings.TrimSpace(wrapped.Error.Type)
+	if message == "" {
+		message = strings.TrimSpace(wrapped.Message)
+	}
+	if code == "" {
+		code = strings.TrimSpace(wrapped.Code)
+	}
+	if errType == "" {
+		errType = strings.TrimSpace(wrapped.Type)
+	}
+	if message == "" {
+		message = strings.TrimSpace(string(body))
+	}
+	if message == "" {
+		message = http.StatusText(statusCode)
+	}
+
+	switch statusCode {
+	case http.StatusUnauthorized:
+		message = "API key is invalid or missing. Check your DeepSeek API key."
+	case http.StatusPaymentRequired, http.StatusForbidden:
+		if message == http.StatusText(statusCode) {
+			message = "Request was rejected. Check DeepSeek account balance, permissions, and model access."
+		}
+	case http.StatusTooManyRequests:
+		if message == http.StatusText(statusCode) {
+			message = "Rate limit or concurrency limit reached. Wait a moment and retry."
+		}
+	}
+
+	return &APIError{
+		StatusCode: statusCode,
+		Code:       code,
+		Message:    message,
+		Type:       errType,
+	}
 }
 
 func (c *Client) Chat(messages []Message, tools []ToolDef, maxTokens int, temperature float64) (*ChatResponse, error) {
