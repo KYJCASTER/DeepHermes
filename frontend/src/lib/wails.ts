@@ -113,6 +113,27 @@ export function ArchiveSession(sessionId: string) {
   return invoke(() => AppBindings.ArchiveSession(sessionId), () => undefined);
 }
 
+export function BackupSessions() {
+  return invoke(
+    () => AppBindings.BackupSessions(),
+    () => ({ path: "preview-sessions-backup.json", sessions: 0 })
+  );
+}
+
+export function RestoreSessions() {
+  return invoke(
+    () => AppBindings.RestoreSessions(),
+    () => ({ path: "preview-sessions-backup.json", sessions: 0 })
+  );
+}
+
+export function ExportSession(req: { sessionId: string; format: "markdown" | "json" }) {
+  return invoke(
+    () => AppBindings.ExportSession(req),
+    () => ({ path: `preview-session.${req.format === "json" ? "json" : "md"}`, sessions: 1 })
+  );
+}
+
 export function GetHistory(sessionId: string) {
   return invoke(() => AppBindings.GetHistory(sessionId), () => []);
 }

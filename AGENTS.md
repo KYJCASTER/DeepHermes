@@ -10,6 +10,7 @@ DeepHermes is a Windows desktop AI agent built with Wails v2, Go, React, Vite, a
 - `go test -run TestName ./pkg/tools/...`: run a focused Go test.
 - `cd frontend && npm ci`: install locked frontend dependencies.
 - `cd frontend && npm run dev`: start the Vite development server.
+- `cd frontend && npm test`: run Vitest frontend tests.
 - `cd frontend && npm run build`: type-check TypeScript and build frontend assets.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1`: build `build\bin\DeepHermes.exe`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1 -Version 1.0.0`: build the Windows installer.

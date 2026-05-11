@@ -4,9 +4,10 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import type { ToolMode } from "../../stores/settingsStore";
 import { useI18n } from "../../stores/i18nStore";
 import { useThemeStore } from "../../stores/themeStore";
+import { useSessionStore } from "../../stores/sessionStore";
 import { CHAT_MODE_PRESETS, chatModePreset, MODEL_OPTIONS, formatCny, formatTokenLimit, modelProfile, supportsThinking } from "../../lib/models";
 import { INITIAL_PROMPT_PRESETS } from "../../lib/promptPresets";
-import { ExportSettings, GetDiagnostics, ImportCharacterCard, ImportSettings, ListOCRPresets, ListTools, TestAPIKey } from "../../lib/wails";
+import { BackupSessions, ExportSettings, GetDiagnostics, ImportCharacterCard, ImportSettings, ListOCRPresets, ListTools, RestoreSessions, TestAPIKey } from "../../lib/wails";
 
 const INITIAL_PROMPT_LIMIT = 60000;
 type SettingsTab = "api" | "model" | "prompts" | "ocr" | "desktop" | "safety";
@@ -22,6 +23,7 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; labelKey: string }> = [
 
 export default function SettingsDialog() {
   const settings = useSettingsStore();
+  const reloadSessions = useSessionStore((s) => s.loadSessions);
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const { t, lang } = useI18n();
@@ -203,6 +205,35 @@ export default function SettingsDialog() {
     }
   };
 
+  const handleBackupSessions = async () => {
+    try {
+      setError("");
+      const result = await BackupSessions();
+      if (result?.path) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+        GetDiagnostics().then(setDiagnostics).catch(() => undefined);
+      }
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  };
+
+  const handleRestoreSessions = async () => {
+    try {
+      setError("");
+      const result = await RestoreSessions();
+      if (result?.path) {
+        await reloadSessions();
+        GetDiagnostics().then(setDiagnostics).catch(() => undefined);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      }
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  };
+
   const handleImportCharacterCard = async () => {
     try {
       setError("");
@@ -364,6 +395,20 @@ export default function SettingsDialog() {
               >
                 <Upload size={13} />
                 {t("settings.import")}
+              </button>
+              <button
+                onClick={handleBackupSessions}
+                className="motion-lift inline-flex items-center justify-center gap-2 rounded border border-border bg-surface px-3 py-2 text-xs text-text transition hover:border-dim"
+              >
+                <Download size={13} />
+                {t("settings.backupSessions")}
+              </button>
+              <button
+                onClick={handleRestoreSessions}
+                className="motion-lift inline-flex items-center justify-center gap-2 rounded border border-border bg-surface px-3 py-2 text-xs text-text transition hover:border-dim"
+              >
+                <Upload size={13} />
+                {t("settings.restoreSessions")}
               </button>
               <button
                 onClick={() => savePartial({ portable: !settings.portable })}

@@ -36,7 +36,7 @@ import {
   modelProfile,
   supportsThinking,
 } from "../../lib/models";
-import { ClipboardSetText, GetContextSummary, OCRImage, OCRImageFile, OnFileDrop, OnFileDropOff, ReadFileSnippet, SearchWorkspaceFiles, UpdateContextSummary } from "../../lib/wails";
+import { ClipboardSetText, ExportSession, GetContextSummary, OCRImage, OCRImageFile, OnFileDrop, OnFileDropOff, ReadFileSnippet, SearchWorkspaceFiles, UpdateContextSummary } from "../../lib/wails";
 import MessageBubble from "./MessageBubble";
 import ThinkingBanner from "./ThinkingBanner";
 
@@ -281,6 +281,14 @@ export default function ChatView() {
     if (!session) return;
     await ClipboardSetText(transcriptMarkdown(session.name, session.messages));
     setComposerNotice(t("chat.exportCopied"));
+  };
+
+  const exportSessionToFile = async (format: "markdown" | "json") => {
+    if (!session) return;
+    const result = await ExportSession({ sessionId: session.id, format });
+    if (result?.path) {
+      setComposerNotice(t(format === "json" ? "chat.exportJsonSaved" : "chat.exportMarkdownSaved"));
+    }
   };
 
   const runSlashCommand = (raw: string) => {
@@ -846,6 +854,32 @@ export default function ChatView() {
                       </button>
                     );
                   })}
+                  <button
+                    onClick={() => {
+                      exportSessionToFile("markdown").catch((err) => setComposerNotice(err?.message || String(err)));
+                      setShowTemplates(false);
+                    }}
+                    className="composer-template-item"
+                  >
+                    <FileInput size={14} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-text">{t("template.exportMarkdown")}</span>
+                      <span className="block truncate text-[11px] text-dim">Markdown / .md</span>
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      exportSessionToFile("json").catch((err) => setComposerNotice(err?.message || String(err)));
+                      setShowTemplates(false);
+                    }}
+                    className="composer-template-item"
+                  >
+                    <FileInput size={14} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-text">{t("template.exportJson")}</span>
+                      <span className="block truncate text-[11px] text-dim">JSON / .json</span>
+                    </span>
+                  </button>
                 </div>
               )}
             </div>

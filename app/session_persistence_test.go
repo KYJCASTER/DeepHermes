@@ -1,6 +1,9 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,5 +79,117 @@ func TestSessionPersistenceRoundTrip(t *testing.T) {
 	}
 	if loaded.LastRun == nil || loaded.LastRun.TokensPerSec != 12.5 {
 		t.Fatalf("expected last run metrics to persist, got %#v", loaded.LastRun)
+	}
+}
+
+func TestLoadPersistedSessionsQuarantinesCorruptFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	cfg := config.Default()
+	app := NewApp(cfg)
+	dir, err := app.sessionsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	badPath := filepath.Join(dir, "broken.json")
+	if err := os.WriteFile(badPath, []byte("{not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := app.loadPersistedSessions(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(badPath); !os.IsNotExist(err) {
+		t.Fatalf("expected corrupt session file to be moved, stat err=%v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "corrupt", "broken.json.*.corrupt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected one quarantined corrupt file, got %v", matches)
+	}
+}
+
+func TestSessionBackupRestoreAndExport(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	cfg := config.Default()
+	app := NewApp(cfg)
+	now := time.Now().UTC()
+	app.sessions["session-export"] = &Session{
+		ID:        "session-export",
+		Name:      "Export Chat",
+		Agent:     agent.New(app.client, app.registry, app.agentConfig()),
+		Model:     cfg.Model,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Messages: []api.Message{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "hi", ReasoningContent: "thinking"},
+		},
+		ContextSummary: "Project context.",
+		Usage:          TokenUsage{TotalTokens: 12},
+	}
+
+	backupPath := filepath.Join(t.TempDir(), "sessions.json")
+	count, err := app.backupSessionsToPath(backupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one backed-up session, got %d", count)
+	}
+
+	restored := NewApp(cfg)
+	count, err = restored.restoreSessionsFromPath(backupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one restored session, got %d", count)
+	}
+	if restored.sessions["session-export"] == nil {
+		t.Fatal("expected restored session")
+	}
+
+	mdPath := filepath.Join(t.TempDir(), "session.md")
+	if err := restored.exportSessionToPath("session-export", "markdown", mdPath); err != nil {
+		t.Fatal(err)
+	}
+	md, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(md), "# Export Chat") || !strings.Contains(string(md), "Project context.") {
+		t.Fatalf("unexpected markdown export:\n%s", string(md))
+	}
+
+	jsonPath := filepath.Join(t.TempDir(), "session.json")
+	if err := restored.exportSessionToPath("session-export", "json", jsonPath); err != nil {
+		t.Fatal(err)
+	}
+	jsonData, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(jsonData), `"version": 1`) || !strings.Contains(string(jsonData), `"id": "session-export"`) {
+		t.Fatalf("unexpected json export:\n%s", string(jsonData))
+	}
+
+	restoredSingle := NewApp(cfg)
+	count, err = restoredSingle.restoreSessionsFromPath(jsonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || restoredSingle.sessions["session-export"] == nil {
+		t.Fatalf("expected single exported session to restore, count=%d", count)
 	}
 }

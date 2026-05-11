@@ -38,6 +38,10 @@ export function ArchiveSession(arg1) {
   return window['go']['app']['App']['ArchiveSession'](arg1);
 }
 
+export function BackupSessions() {
+  return window['go']['app']['App']['BackupSessions']();
+}
+
 export function DeleteMessage(arg1) {
   return window['go']['app']['App']['DeleteMessage'](arg1);
 }
@@ -48,6 +52,10 @@ export function DeleteSession(arg1) {
 
 export function ExportSettings() {
   return window['go']['app']['App']['ExportSettings']();
+}
+
+export function ExportSession(arg1) {
+  return window['go']['app']['App']['ExportSession'](arg1);
 }
 
 export function GetAPIKeyStatus() {
@@ -148,6 +156,10 @@ export function RejectToolCall(arg1) {
 
 export function RestoreMainWindow() {
   return window['go']['app']['App']['RestoreMainWindow']();
+}
+
+export function RestoreSessions() {
+  return window['go']['app']['App']['RestoreSessions']();
 }
 
 export function RollbackToolChange(arg1) {

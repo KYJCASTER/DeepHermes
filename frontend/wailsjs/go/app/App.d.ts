@@ -21,11 +21,15 @@ export function UpdateContextSummary(arg1:app.UpdateContextSummaryRequest):Promi
 
 export function ArchiveSession(arg1:string):Promise<void>;
 
+export function BackupSessions():Promise<app.SessionStorageResult>;
+
 export function DeleteMessage(arg1:app.MessageIndexRequest):Promise<void>;
 
 export function DeleteSession(arg1:string):Promise<void>;
 
 export function ExportSettings():Promise<string>;
+
+export function ExportSession(arg1:app.ExportSessionRequest):Promise<app.SessionStorageResult>;
 
 export function GetAPIKeyStatus():Promise<string>;
 
@@ -76,6 +80,8 @@ export function RegenerateMessage(arg1:app.MessageIndexRequest):Promise<void>;
 export function RejectToolCall(arg1:string):Promise<void>;
 
 export function RestoreMainWindow():Promise<void>;
+
+export function RestoreSessions():Promise<app.SessionStorageResult>;
 
 export function RollbackToolChange(arg1:string):Promise<app.ToolRollbackResult>;
 

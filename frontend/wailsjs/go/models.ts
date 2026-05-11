@@ -141,6 +141,34 @@ export namespace app {
 	        this.summary = source["summary"];
 	    }
 	}
+	export class SessionStorageResult {
+	    path: string;
+	    sessions: number;
+
+	    static createFrom(source: any = {}) {
+	        return new SessionStorageResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.sessions = source["sessions"];
+	    }
+	}
+	export class ExportSessionRequest {
+	    sessionId: string;
+	    format: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ExportSessionRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.format = source["format"];
+	    }
+	}
 	export class DiagnosticLog {
 	    time: string;
 	    level: string;

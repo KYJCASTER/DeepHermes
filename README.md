@@ -29,6 +29,8 @@ DeepHermes is a Windows desktop agent client optimized for DeepSeek models. It i
 - Confirmation prompts for destructive chat/session actions and model-initiated write, shell, or network tools.
 - Diff previews before approving model-initiated file writes or edits.
 - Tool activity panel showing model-initiated file, command, and network tool calls with arguments, results, and one-click rollback for file writes/edits.
+- Per-tool safety overrides, Bash blocklist rules, and TSV audit-log export.
+- Session backup/restore, corrupt session quarantine, and Markdown/JSON session export.
 - Agent workspace panels for files, sessions, status, and cowork/subagent flows.
 - Resizable session and file sidebars with persisted layout preference.
 - Portable mode, settings import/export, diagnostics, build metadata, and persisted window size/position.
@@ -41,8 +43,9 @@ DeepHermes is a Windows desktop agent client optimized for DeepSeek models. It i
 ## Requirements
 
 - Windows
-- Go
-- Node.js
+- Go 1.26.1+
+- Node.js 18+ (Node 22 is used in CI)
+- Wails CLI v2.12+
 - Frontend dependencies installed in `frontend/node_modules`
 
 ## Quick Start
@@ -64,10 +67,11 @@ cd frontend
 node .\node_modules\typescript\bin\tsc --noEmit
 ```
 
-Build the frontend:
+Run frontend tests and build:
 
 ```powershell
 cd frontend
+npm test
 node .\node_modules\vite\bin\vite.js build
 ```
 
@@ -144,6 +148,8 @@ ocr:
   max_image_bytes: 8388608
 safety:
   tool_mode: confirm
+  tool_overrides: {}
+  bash_blocklist: []
 ```
 
 DeepSeek model prices are used only for local estimates in the UI. Prices can change, so check the official DeepSeek pricing page before treating estimates as billing truth.
@@ -178,6 +184,14 @@ You can override the model with:
 ```powershell
 $env:DEEPSEEK_MODEL = "deepseek-v4-pro"
 ```
+
+## Session Data & Privacy
+
+DeepHermes stores API keys, settings, sessions, memory, and diagnostics locally. Standard mode writes under `~/.deephermes/`; portable mode writes under `DeepHermesData` next to the executable. Session files are versioned JSON. If a session file is corrupt, startup moves it into a `corrupt` folder instead of blocking the app.
+
+Use Settings > Desktop to back up or restore all sessions. Use the chat template menu to export the active session as Markdown or JSON. Audit logs from the tool activity panel export as TSV and may include tool arguments or file paths, so review them before sharing.
+
+Never commit real API keys, exported settings containing secrets, session backups, or diagnostic logs.
 
 ## Project Structure
 
