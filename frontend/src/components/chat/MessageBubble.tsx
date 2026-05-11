@@ -62,14 +62,14 @@ export default function MessageBubble({
   }
 
   return (
-    <div className={`message-bubble my-5 flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`message-bubble my-4 flex gap-3 sm:my-5 ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
-        <div className="ds-mark mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-accent/14">
+        <div className="ds-mark mt-1 hidden h-8 w-8 shrink-0 items-center justify-center rounded bg-accent/14 sm:flex">
           <Bot size={15} className="text-accent" />
         </div>
       )}
 
-      <div className={`max-w-[82%] ${isUser ? "order-first" : ""}`}>
+      <div className={`max-w-[92%] sm:max-w-[82%] ${isUser ? "order-first" : ""}`}>
         <div className={`mb-1 flex items-center gap-2 text-[11px] uppercase tracking-wide text-dim ${isUser ? "justify-end" : ""}`}>
           <span>{isUser ? "You" : "DeepHermes"}</span>
           {isStreaming && <span className="agent-running h-1.5 w-1.5 rounded-full bg-accent" />}
@@ -91,7 +91,14 @@ export default function MessageBubble({
                 </button>
               )}
               {onDelete && (
-                <button onClick={() => onDelete()} className="message-action hover:text-red" title={t("chat.deleteMessage")}>
+                <button
+                  onClick={() => {
+                    if (!window.confirm(t("confirm.deleteMessage"))) return;
+                    onDelete();
+                  }}
+                  className="message-action hover:text-red"
+                  title={t("chat.deleteMessage")}
+                >
                   <Trash2 size={12} />
                 </button>
               )}
@@ -163,7 +170,7 @@ export default function MessageBubble({
       </div>
 
       {isUser && (
-        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded bg-green/16">
+        <div className="mt-1 hidden h-8 w-8 shrink-0 items-center justify-center rounded bg-green/16 sm:flex">
           <User size={15} className="text-green" />
         </div>
       )}

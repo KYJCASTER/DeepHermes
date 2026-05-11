@@ -77,6 +77,7 @@ body {
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -87,6 +88,19 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--color-dim));
+}
+
+/* Focus-visible for keyboard accessibility */
+:focus-visible {
+  outline: 2px solid rgb(var(--color-accent) / 0.55);
+  outline-offset: 2px;
+}
+
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+textarea:focus:not(:focus-visible),
+select:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* Title bar drag region */
@@ -430,6 +444,16 @@ code {
   }
 }
 
+@media (max-width: 540px) {
+  .workspace-header {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .workspace-header h1 {
+    font-size: 1rem;
+  }
+}
+
 .rail-panel {
   background: rgb(var(--color-surface) / 0.74);
   backdrop-filter: blur(18px);
@@ -445,6 +469,8 @@ code {
   border: 1px solid transparent;
   border-radius: 8px;
   transition: transform 180ms cubic-bezier(.2,.85,.2,1), border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 80px;
 }
 
 .nav-card:hover {
@@ -521,17 +547,122 @@ code {
   border-color: rgb(var(--color-accent) / 0.32);
 }
 
+.continue-output-banner {
+  border: 1px solid rgb(var(--color-yellow) / 0.25);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgb(var(--color-yellow) / 0.10), rgb(var(--color-accent) / 0.06));
+  box-shadow: 0 14px 34px rgb(0 0 0 / 0.06);
+}
+
+:root[data-theme="anime"] .continue-output-banner {
+  border-color: rgb(var(--color-accent-alt) / 0.32);
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.9), rgb(var(--color-accent-alt) / 0.12));
+  box-shadow: 0 16px 34px rgb(var(--color-accent) / 0.12);
+}
+
 .composer-shell {
+  position: relative;
   border-radius: 8px;
   background: rgb(var(--color-surface) / 0.82);
   border: 1px solid rgb(var(--color-border));
   box-shadow: 0 22px 60px rgb(0 0 0 / 0.10);
   backdrop-filter: blur(18px);
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
 }
 
 :root[data-theme="anime"] .composer-shell {
   background: linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(var(--color-panel) / 0.76));
   box-shadow: 0 24px 58px rgb(var(--color-accent) / 0.16);
+}
+
+.composer-drop-active {
+  border-color: rgb(var(--color-accent) / 0.46);
+  box-shadow: 0 22px 60px rgb(var(--color-accent) / 0.18);
+}
+
+.composer-menu-anchor {
+  position: relative;
+  z-index: 30;
+}
+
+.composer-template-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 0.5rem);
+  width: min(22rem, calc(100vw - 2rem));
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 8px;
+  background: rgb(var(--color-surface) / 0.97);
+  box-shadow: var(--shadow-elevated);
+  backdrop-filter: blur(18px);
+  padding: 0.35rem;
+}
+
+.composer-template-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 6px;
+  padding: 0.55rem 0.6rem;
+  text-align: left;
+  color: rgb(var(--color-dim));
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.composer-template-item:hover {
+  transform: translateY(-1px);
+  background: rgb(var(--color-panel) / 0.82);
+  color: rgb(var(--color-accent));
+}
+
+.composer-file-suggestions {
+  margin-bottom: 0.5rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 8px;
+  background: rgb(var(--color-surface) / 0.94);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(14px);
+}
+
+.composer-file-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  color: rgb(var(--color-dim));
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.composer-file-item:hover,
+.composer-file-item-active {
+  background: rgb(var(--color-panel) / 0.86);
+  color: rgb(var(--color-accent));
+}
+
+.composer-drop-target {
+  position: relative;
+}
+
+.composer-drop-overlay {
+  position: absolute;
+  inset: 0.35rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px dashed rgb(var(--color-accent) / 0.55);
+  border-radius: 8px;
+  background: rgb(var(--color-surface) / 0.86);
+  color: rgb(var(--color-accent));
+  font-size: 0.8rem;
+  font-weight: 600;
+  backdrop-filter: blur(10px);
 }
 
 .resize-handle {
@@ -563,8 +694,30 @@ code {
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 14px 40px rgb(0 0 0 / 0.08);
 }
 
+.error-toast {
+  border: 1px solid rgb(var(--color-red) / 0.3);
+  border-radius: 8px;
+  background: rgb(var(--color-red) / 0.08);
+  color: rgb(var(--color-red));
+  animation: fade-up 320ms cubic-bezier(.2,.85,.2,1) both;
+}
+
+.loading-skeleton {
+  background: linear-gradient(90deg, rgb(var(--color-panel)) 25%, rgb(var(--color-border) / 0.3) 50%, rgb(var(--color-panel)) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .message-bubble {
   animation: message-in 240ms ease both;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
 }
 
 .message-action {

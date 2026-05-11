@@ -2,17 +2,38 @@ import { useEffect, useState } from "react";
 import { useSessionStore } from "./stores/sessionStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useCoworkStore } from "./stores/coworkStore";
-import { EventsOn, WindowGetPosition, WindowGetSize, WindowSetPosition, WindowSetSize } from "./lib/wails";
-import { Plus, Sparkles } from "lucide-react";
+import { useToolActivityStore } from "./stores/toolActivityStore";
+import { ApproveToolCall, EventsOn, RejectToolCall, WindowGetPosition, WindowGetSize, WindowSetPosition, WindowSetSize } from "./lib/wails";
+import { Plus, ShieldCheck, Sparkles } from "lucide-react";
 import TitleBar from "./components/layout/TitleBar";
 import Sidebar from "./components/layout/Sidebar";
 import StatusBar from "./components/layout/StatusBar";
 import ChatView from "./components/chat/ChatView";
 import FileBrowser from "./components/files/FileBrowser";
 import CoworkPanel from "./components/cowork/CoworkPanel";
+import CommandPalette from "./components/command/CommandPalette";
+import ToolActivityPanel from "./components/tools/ToolActivityPanel";
 import SettingsDialog from "./components/settings/SettingsDialog";
 import WelcomeScreen from "./components/settings/WelcomeScreen";
 import { useI18n } from "./stores/i18nStore";
+
+type ToolApproval = {
+  id: string;
+  sessionId?: string;
+  toolName: string;
+  arguments: string;
+  risk: string;
+  mode: string;
+  preview?: string;
+};
+
+function formatToolArguments(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value || "{}";
+  }
+}
 
 export default function App() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -25,9 +46,14 @@ export default function App() {
   const settingsOpen = useSettingsStore((s) => s.isOpen);
   const coworkOpen = useCoworkStore((s) => s.isOpen);
   const upsertSubAgent = useCoworkStore((s) => s.upsertSubAgent);
+  const toolActivityOpen = useToolActivityStore((s) => s.isOpen);
+  const addToolCall = useToolActivityStore((s) => s.addCall);
+  const finishToolCall = useToolActivityStore((s) => s.finishCall);
   const apiKeyStatus = useSettingsStore((s) => s.apiKeyStatus);
   const { t } = useI18n();
   const [loading, setLoading] = useState(true);
+  const [toolApprovals, setToolApprovals] = useState<ToolApproval[]>([]);
+  const [commandOpen, setCommandOpen] = useState(false);
 
   // Listen for events from Go backend. This must be registered before any
   // conditional render path so React keeps a stable hook order after setup.
@@ -75,7 +101,8 @@ export default function App() {
     unsubs.push(EventsOn("error", (raw: unknown) => {
       try {
         const evt = parseEvent(raw);
-        appendToStream(evt.sessionId, `\n\nRequest failed: ${evt.data?.message || "Unknown error"}`);
+        const msg = evt.data?.message || "Unknown error";
+        appendToStream(evt.sessionId, `\n\n> **Error:** ${msg}`);
         finishStream(evt.sessionId);
       } catch (e) {
         console.error("Failed to handle backend error:", e);
@@ -97,9 +124,54 @@ export default function App() {
       }
     }));
 
+    unsubs.push(EventsOn("context:compacted", (raw: unknown) => {
+      try {
+        const evt = parseEvent(raw);
+        const { messagesBefore, messagesAfter, summaryTokens } = evt.data || {};
+        console.info(
+          `Context compacted: ${messagesBefore} → ${messagesAfter} messages, summary ~${summaryTokens} tokens`
+        );
+      } catch (e) {
+        console.error("Failed to handle context compacted:", e);
+      }
+    }));
+
     unsubs.push(EventsOn("settings:updated", (data: any) => {
       if (data?.apiKeyStatus) {
         setAPIKeyStatus(data.apiKeyStatus);
+      }
+    }));
+
+    unsubs.push(EventsOn("tool:approval", (payload: ToolApproval) => {
+      if (!payload?.id) return;
+      setToolApprovals((items) => {
+        if (items.some((item) => item.id === payload.id)) return items;
+        return [...items, payload];
+      });
+    }));
+
+    unsubs.push(EventsOn("tool:call", (raw: unknown) => {
+      try {
+        const evt = parseEvent(raw);
+        if (!evt.data?.id || !evt.data?.name) return;
+        addToolCall({
+          id: evt.data?.id,
+          sessionId: evt.sessionId,
+          toolName: evt.data?.name,
+          arguments: evt.data?.arguments,
+          risk: evt.data?.risk,
+        });
+      } catch (e) {
+        console.error("Failed to handle tool call:", e);
+      }
+    }));
+
+    unsubs.push(EventsOn("tool:result", (raw: unknown) => {
+      try {
+        const evt = parseEvent(raw);
+        finishToolCall(evt.data || {});
+      } catch (e) {
+        console.error("Failed to handle tool result:", e);
       }
     }));
 
@@ -112,7 +184,20 @@ export default function App() {
         }
       });
     };
-  }, [appendToStream, finishStream, setSessionStatus, setAPIKeyStatus, upsertSubAgent]);
+  }, [appendToStream, finishStream, setSessionStatus, setAPIKeyStatus, upsertSubAgent, addToolCall, finishToolCall]);
+
+  const resolveToolApproval = async (id: string, approve: boolean) => {
+    setToolApprovals((items) => items.filter((item) => item.id !== id));
+    try {
+      if (approve) {
+        await ApproveToolCall(id);
+      } else {
+        await RejectToolCall(id);
+      }
+    } catch (e) {
+      console.error("Failed to resolve tool approval:", e);
+    }
+  };
 
   useEffect(() => {
     async function init() {
@@ -122,6 +207,25 @@ export default function App() {
     }
     init();
   }, []);
+
+  useEffect(() => {
+    const onKeyDown = async (event: KeyboardEvent) => {
+      const mod = event.ctrlKey || event.metaKey;
+      const target = event.target as HTMLElement | null;
+      const editing = Boolean(target?.closest("input, textarea, select, [contenteditable='true']"));
+      if (mod && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen((open) => !open);
+      }
+      if (mod && event.key.toLowerCase() === "n" && !editing) {
+        event.preventDefault();
+        const store = useSessionStore.getState();
+        await store.createSession(t("sessions.new"));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [t]);
 
   useEffect(() => {
     if (loading || apiKeyStatus !== "configured") return;
@@ -163,9 +267,11 @@ export default function App() {
   if (loading) {
     return (
       <div className="welcome-shell flex h-screen items-center justify-center text-text">
-        <div className="app-content flex items-center gap-3 text-sm text-dim">
-          <Sparkles size={16} className="agent-running text-accent" />
-          DeepHermes starting...
+        <div className="app-content fade-up flex flex-col items-center gap-4 text-sm text-dim">
+          <div className="ds-mark flex h-12 w-12 items-center justify-center rounded-xl bg-accent/12 text-accent">
+            <Sparkles size={22} className="agent-running" />
+          </div>
+          <span className="text-xs tracking-wide">{t("app.loading")}</span>
         </div>
       </div>
     );
@@ -207,9 +313,58 @@ export default function App() {
           <StatusBar />
         </main>
         {coworkOpen && <CoworkPanel />}
+        {toolActivityOpen && <ToolActivityPanel />}
         <FileBrowser />
       </div>
       {settingsOpen && <SettingsDialog />}
+      <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />
+      {toolApprovals.length > 0 && (
+        <div className="fixed bottom-5 right-5 z-[60] flex max-h-[80vh] w-[min(420px,calc(100vw-2rem))] flex-col gap-3 overflow-y-auto">
+          {toolApprovals.map((approval) => (
+            <div key={approval.id} className="fade-up panel-card rounded border border-border p-4 shadow-xl">
+              <div className="mb-3 flex items-start gap-3">
+                <div className="ds-mark flex h-9 w-9 shrink-0 items-center justify-center rounded bg-accent/12 text-accent">
+                  <ShieldCheck size={17} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="truncate text-sm font-semibold text-text">{t("tools.approvalTitle")}</h3>
+                    <span className="rounded bg-surface px-2 py-0.5 text-[11px] text-dim">{approval.risk}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-dim">{t("tools.approvalDesc").replace("{tool}", approval.toolName)}</p>
+                </div>
+              </div>
+              <pre className="system-pre max-h-40 overflow-y-auto rounded border border-border bg-bg/75 p-3 text-xs leading-5 text-dim">
+                {formatToolArguments(approval.arguments)}
+              </pre>
+              {approval.preview && (
+                <div className="mt-2 rounded border border-yellow/25 bg-yellow/8">
+                  <div className="border-b border-yellow/20 px-3 py-2 text-xs font-semibold text-text">
+                    {t("tools.diffPreview")}
+                  </div>
+                  <pre className="system-pre max-h-48 overflow-y-auto p-3 text-xs leading-5 text-text">
+                    {approval.preview}
+                  </pre>
+                </div>
+              )}
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  onClick={() => resolveToolApproval(approval.id, false)}
+                  className="motion-lift rounded border border-border px-3 py-1.5 text-xs text-dim transition hover:border-red/50 hover:text-red"
+                >
+                  {t("tools.reject")}
+                </button>
+                <button
+                  onClick={() => resolveToolApproval(approval.id, true)}
+                  className="motion-lift rounded bg-accent px-3 py-1.5 text-xs font-semibold text-bg transition hover:bg-accent-alt"
+                >
+                  {t("tools.approve")}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

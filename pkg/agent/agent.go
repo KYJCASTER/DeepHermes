@@ -20,6 +20,7 @@ type Agent struct {
 type RunResult struct {
 	Content          string
 	ReasoningContent string
+	FinishReason     string
 	Usage            *api.Usage
 	StartedAt        time.Time
 	FirstTokenAt     time.Time
@@ -167,6 +168,7 @@ func (a *Agent) RunStreamDetailed(ctx context.Context, userMessage string, cb fu
 		if resp != nil && resp.Usage != nil {
 			result.Usage = resp.Usage
 		}
+		finishReason := finishReasonFromResponse(resp)
 
 		calls := orderedToolCalls(toolCalls, toolOrder)
 		if len(calls) > 0 {
@@ -196,6 +198,7 @@ func (a *Agent) RunStreamDetailed(ctx context.Context, userMessage string, cb fu
 
 		result.Content = content.String()
 		result.ReasoningContent = reasoning.String()
+		result.FinishReason = finishReason
 		result.FinishedAt = time.Now()
 
 		turnMessages = append(turnMessages, api.Message{
@@ -209,6 +212,18 @@ func (a *Agent) RunStreamDetailed(ctx context.Context, userMessage string, cb fu
 	}
 
 	return nil, fmt.Errorf("too many tool-calling rounds")
+}
+
+func finishReasonFromResponse(resp *api.ChatResponse) string {
+	if resp == nil {
+		return ""
+	}
+	for i := len(resp.Choices) - 1; i >= 0; i-- {
+		if reason := strings.TrimSpace(resp.Choices[i].FinishReason); reason != "" {
+			return reason
+		}
+	}
+	return ""
 }
 
 func sanitizeHistory(messages []api.Message) []api.Message {

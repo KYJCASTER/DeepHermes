@@ -19,6 +19,24 @@ api:
   base_url: https://api.deepseek.com
   timeout_seconds: 120
   max_retries: 3
+  proxy_url: ""
+
+# OCR provider for pasted screenshots/images.
+# Use an OpenAI-compatible vision endpoint. Leave disabled until configured.
+ocr:
+  enabled: false
+  provider: openai_compatible
+  base_url: ""
+  model: ""
+  prompt: "Extract all readable text from this image. Preserve line breaks when useful. If there is no readable text, briefly describe the visible content."
+  timeout_seconds: 60
+  max_image_bytes: 8388608
+
+# Safety controls for model tool calls: read_only, confirm, auto
+safety:
+  tool_mode: confirm
+  tool_overrides: {}
+  bash_blocklist: []
 
 # Tool permissions (empty = allow all)
 allowed_tools: []

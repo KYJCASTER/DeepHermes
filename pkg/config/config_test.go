@@ -29,6 +29,18 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.API.BaseURL != "https://api.deepseek.com" {
 		t.Errorf("expected base URL, got %s", cfg.API.BaseURL)
 	}
+	if cfg.API.TimeoutSeconds != 120 || cfg.API.MaxRetries != 3 {
+		t.Errorf("expected API timeout/retries defaults, got %d/%d", cfg.API.TimeoutSeconds, cfg.API.MaxRetries)
+	}
+	if cfg.Safety.ToolMode != "confirm" {
+		t.Errorf("expected confirm tool mode, got %s", cfg.Safety.ToolMode)
+	}
+	if cfg.OCR.Enabled {
+		t.Errorf("expected OCR disabled by default")
+	}
+	if cfg.OCR.Provider != "openai_compatible" {
+		t.Errorf("expected openai_compatible OCR provider, got %s", cfg.OCR.Provider)
+	}
 }
 
 func TestLoadConfigFromFile(t *testing.T) {

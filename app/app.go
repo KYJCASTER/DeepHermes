@@ -23,6 +23,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var errStopWalk = errors.New("stop walking workspace")
+
 // App is the main application struct. Its public methods are bound to the frontend.
 type App struct {
 	ctx      context.Context
@@ -38,6 +40,12 @@ type App struct {
 
 	logsMu sync.Mutex
 	logs   []DiagnosticLog
+
+	toolApprovalsMu sync.Mutex
+	toolApprovals   map[string]chan tools.ApprovalDecision
+
+	toolRollbacksMu sync.Mutex
+	toolRollbacks   map[string]ToolRollbackSnapshot
 }
 
 type Session struct {
@@ -72,6 +80,8 @@ type RunMetrics struct {
 	FirstTokenMs int64      `json:"firstTokenMs"`
 	DurationMs   int64      `json:"durationMs"`
 	TokensPerSec float64    `json:"tokensPerSec"`
+	FinishReason string     `json:"finishReason,omitempty"`
+	Truncated    bool       `json:"truncated,omitempty"`
 }
 
 type SubAgentRuntime struct {
@@ -88,6 +98,23 @@ type DiagnosticLog struct {
 	Time    string `json:"time"`
 	Level   string `json:"level"`
 	Message string `json:"message"`
+}
+
+type ToolRollbackSnapshot struct {
+	ToolCallID string
+	ToolName   string
+	Path       string
+	Existed    bool
+	Content    []byte
+	Mode       os.FileMode
+	CreatedAt  time.Time
+}
+
+type ToolRollbackResult struct {
+	Restored bool   `json:"restored"`
+	Deleted  bool   `json:"deleted"`
+	Path     string `json:"path"`
+	Message  string `json:"message"`
 }
 
 type AppDiagnostics struct {
@@ -114,17 +141,21 @@ type AppDiagnostics struct {
 // NewApp creates the application with loaded config.
 func NewApp(cfg *config.Config) *App {
 	client := api.NewClient(cfg.API.BaseURL, cfg.Model, cfg.GetAPIKey(), cfg.API.MaxRetries)
-	client.UpdateConfig(cfg.API.BaseURL, cfg.Model, cfg.GetAPIKey(), cfg.API.MaxRetries, cfg.API.TimeoutSeconds, cfg.ThinkingEnabled)
+	client.UpdateConfig(cfg.API.BaseURL, cfg.Model, cfg.GetAPIKey(), cfg.API.MaxRetries, cfg.API.TimeoutSeconds, cfg.ThinkingEnabled, cfg.API.ProxyURL)
 	reg := tools.NewRegistry()
 	registerTools(reg)
 
-	return &App{
-		cfg:       cfg,
-		client:    client,
-		registry:  reg,
-		sessions:  make(map[string]*Session),
-		subAgents: make(map[string]*SubAgentRuntime),
+	app := &App{
+		cfg:           cfg,
+		client:        client,
+		registry:      reg,
+		sessions:      make(map[string]*Session),
+		subAgents:     make(map[string]*SubAgentRuntime),
+		toolApprovals: make(map[string]chan tools.ApprovalDecision),
+		toolRollbacks: make(map[string]ToolRollbackSnapshot),
 	}
+	app.configureToolPolicy()
+	return app
 }
 
 func (a *App) OnStartup(ctx context.Context) {
@@ -235,6 +266,7 @@ func (a *App) syncClientConfig() {
 		a.cfg.API.MaxRetries,
 		a.cfg.API.TimeoutSeconds,
 		a.cfg.ThinkingEnabled,
+		a.cfg.API.ProxyURL,
 	)
 }
 
@@ -245,6 +277,213 @@ func (a *App) syncSessionConfigs() {
 		sess.Model = a.cfg.Model
 		sess.Agent.UpdateConfig(a.sessionAgentConfig(sess))
 	}
+}
+
+func (a *App) configureToolPolicy() {
+	a.configureRegistryPolicy(a.registry)
+}
+
+func (a *App) configureRegistryPolicy(reg *tools.Registry) {
+	if reg == nil {
+		return
+	}
+	reg.SetPolicy(tools.Policy{
+		Mode:          normalizeSafetyToolMode(a.cfg.Safety.ToolMode),
+		ToolOverrides: a.cfg.Safety.ToolOverrides,
+		BashBlocklist: a.cfg.Safety.BashBlocklist,
+		Approval:      a.waitForToolApproval,
+		OnCall:        a.emitToolCall,
+		OnResult:      a.emitToolResult,
+	})
+}
+
+func (a *App) emitToolCall(ctx context.Context, event tools.ExecutionEvent) {
+	a.captureToolRollback(event)
+	if a.ctx == nil {
+		return
+	}
+	emit(a.ctx, event.SessionID, events.EventToolCall, events.ToolCallPayload{
+		ID:        event.ID,
+		Name:      event.ToolName,
+		Arguments: event.Arguments,
+		Risk:      event.Risk,
+	})
+}
+
+func (a *App) emitToolResult(ctx context.Context, event tools.ExecutionEvent) {
+	if a.ctx == nil {
+		return
+	}
+	rollbackAvailable, rollbackPath := a.rollbackStatusForResult(event)
+	emit(a.ctx, event.SessionID, events.EventToolResult, events.ToolResultPayload{
+		ToolCallID:        event.ID,
+		Name:              event.ToolName,
+		Content:           event.Content,
+		Success:           event.Success,
+		Error:             event.Error,
+		Risk:              event.Risk,
+		RollbackAvailable: rollbackAvailable,
+		RollbackPath:      rollbackPath,
+	})
+}
+
+func (a *App) captureToolRollback(event tools.ExecutionEvent) {
+	if event.ToolName != "write_file" && event.ToolName != "edit_file" {
+		return
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(event.Arguments), &args); err != nil {
+		return
+	}
+	path, _ := args["file_path"].(string)
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	snapshot := ToolRollbackSnapshot{
+		ToolCallID: event.ID,
+		ToolName:   event.ToolName,
+		Path:       path,
+		CreatedAt:  time.Now(),
+	}
+	info, statErr := os.Stat(path)
+	switch {
+	case statErr == nil && !info.IsDir():
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return
+		}
+		snapshot.Existed = true
+		snapshot.Content = data
+		snapshot.Mode = info.Mode()
+	case errors.Is(statErr, os.ErrNotExist):
+		snapshot.Existed = false
+		snapshot.Mode = 0644
+	default:
+		return
+	}
+	a.toolRollbacksMu.Lock()
+	if a.toolRollbacks == nil {
+		a.toolRollbacks = make(map[string]ToolRollbackSnapshot)
+	}
+	a.toolRollbacks[event.ID] = snapshot
+	a.toolRollbacksMu.Unlock()
+}
+
+func (a *App) rollbackStatusForResult(event tools.ExecutionEvent) (bool, string) {
+	a.toolRollbacksMu.Lock()
+	defer a.toolRollbacksMu.Unlock()
+	snapshot, ok := a.toolRollbacks[event.ID]
+	if !ok {
+		return false, ""
+	}
+	if !event.Success {
+		delete(a.toolRollbacks, event.ID)
+		return false, ""
+	}
+	return true, snapshot.Path
+}
+
+func (a *App) RollbackToolChange(toolCallID string) (*ToolRollbackResult, error) {
+	toolCallID = strings.TrimSpace(toolCallID)
+	if toolCallID == "" {
+		return nil, fmt.Errorf("tool call id is required")
+	}
+	a.toolRollbacksMu.Lock()
+	snapshot, ok := a.toolRollbacks[toolCallID]
+	if ok {
+		delete(a.toolRollbacks, toolCallID)
+	}
+	a.toolRollbacksMu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("rollback snapshot not found or already used")
+	}
+	if snapshot.Existed {
+		mode := snapshot.Mode
+		if mode == 0 {
+			mode = 0644
+		}
+		if err := os.WriteFile(snapshot.Path, snapshot.Content, mode); err != nil {
+			return nil, fmt.Errorf("restore %s: %w", snapshot.Path, err)
+		}
+		a.recordLog("info", "rolled back tool change: "+snapshot.Path)
+		return &ToolRollbackResult{
+			Restored: true,
+			Path:     snapshot.Path,
+			Message:  "File restored to the state before the tool call.",
+		}, nil
+	}
+	if err := os.Remove(snapshot.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("delete new file %s: %w", snapshot.Path, err)
+	}
+	a.recordLog("info", "deleted file created by tool call: "+snapshot.Path)
+	return &ToolRollbackResult{
+		Deleted: true,
+		Path:    snapshot.Path,
+		Message: "New file created by the tool call was deleted.",
+	}, nil
+}
+
+func (a *App) waitForToolApproval(ctx context.Context, req tools.ApprovalRequest) (tools.ApprovalDecision, error) {
+	if a.ctx == nil {
+		return tools.ApprovalDecision{}, fmt.Errorf("tool %s requires approval before the UI is ready", req.ToolName)
+	}
+	ch := make(chan tools.ApprovalDecision, 1)
+	a.toolApprovalsMu.Lock()
+	if a.toolApprovals == nil {
+		a.toolApprovals = make(map[string]chan tools.ApprovalDecision)
+	}
+	a.toolApprovals[req.ID] = ch
+	a.toolApprovalsMu.Unlock()
+
+	defer func() {
+		a.toolApprovalsMu.Lock()
+		delete(a.toolApprovals, req.ID)
+		a.toolApprovalsMu.Unlock()
+	}()
+
+	runtime.EventsEmit(a.ctx, string(events.EventToolApproval), events.ToolApprovalPayload{
+		ID:        req.ID,
+		SessionID: req.SessionID,
+		ToolName:  req.ToolName,
+		Arguments: req.Arguments,
+		Risk:      req.Risk,
+		Mode:      req.Mode,
+		Preview:   req.Preview,
+	})
+
+	select {
+	case decision := <-ch:
+		return decision, nil
+	case <-ctx.Done():
+		return tools.ApprovalDecision{}, ctx.Err()
+	}
+}
+
+func (a *App) ApproveToolCall(id string) error {
+	return a.resolveToolApproval(id, tools.ApprovalDecision{Approved: true})
+}
+
+func (a *App) RejectToolCall(id string) error {
+	return a.resolveToolApproval(id, tools.ApprovalDecision{Approved: false, Reason: "rejected by user"})
+}
+
+func (a *App) resolveToolApproval(id string, decision tools.ApprovalDecision) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("approval id is required")
+	}
+	a.toolApprovalsMu.Lock()
+	ch, ok := a.toolApprovals[id]
+	a.toolApprovalsMu.Unlock()
+	if !ok {
+		return fmt.Errorf("approval request not found or already resolved")
+	}
+	select {
+	case ch <- decision:
+	default:
+	}
+	return nil
 }
 
 // ============================================================================
@@ -394,7 +633,7 @@ func (a *App) SendMessage(req SendMessageRequest) error {
 		a.sessionsMu.Unlock()
 		return fmt.Errorf("session is already running")
 	}
-	ctx, cancel := context.WithCancel(a.ctx)
+	ctx, cancel := context.WithCancel(tools.WithSessionID(a.ctx, req.SessionID))
 	history := a.prepareSessionContextLocked(sess)
 	now := time.Now()
 	sess.Cancel = cancel
@@ -448,9 +687,10 @@ func (a *App) SendMessage(req SendMessageRequest) error {
 				})
 				return
 			}
-			a.recordLog("error", err.Error())
+			friendly := friendlyErrorMessage(err)
+			a.recordLog("error", friendly)
 			emit(a.ctx, req.SessionID, events.EventError, events.ErrorPayload{
-				Message: err.Error(),
+				Message: friendly,
 				Code:    "AGENT_ERROR",
 			})
 			emit(a.ctx, req.SessionID, events.EventAgentStatus, events.AgentStatusPayload{
@@ -488,8 +728,135 @@ func (a *App) SendMessage(req SendMessageRequest) error {
 			FullResponse: result.Content,
 			Usage:        metricsUsage(metrics),
 			Metrics:      metrics,
+			FinishReason: result.FinishReason,
+			Truncated:    isTruncatedFinishReason(result.FinishReason),
 		})
 		emit(a.ctx, req.SessionID, events.EventAgentStatus, events.AgentStatusPayload{
+			Status: "idle",
+			Model:  sess.Model,
+		})
+	}()
+
+	return nil
+}
+
+func (a *App) ContinueLastResponse(sessionID string) error {
+	a.sessionsMu.Lock()
+	sess, ok := a.sessions[sessionID]
+	if !ok {
+		a.sessionsMu.Unlock()
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	if sess.Cancel != nil {
+		a.sessionsMu.Unlock()
+		return fmt.Errorf("session is already running")
+	}
+	if len(sess.Messages) == 0 || sess.Messages[len(sess.Messages)-1].Role != "assistant" {
+		a.sessionsMu.Unlock()
+		return fmt.Errorf("no assistant message to continue")
+	}
+
+	existingContent := sess.Messages[len(sess.Messages)-1].Content
+	existingReasoning := sess.Messages[len(sess.Messages)-1].ReasoningContent
+
+	continuePrompt := "Continue from where the previous assistant reply was truncated. Do not repeat existing text. Preserve the current context, voice, and format."
+
+	ctx, cancel := context.WithCancel(tools.WithSessionID(a.ctx, sessionID))
+	history := a.prepareSessionContextLocked(sess)
+	now := time.Now()
+	sess.Cancel = cancel
+	sess.Model = a.cfg.Model
+	sess.UpdatedAt = now
+	sess.Agent.SetMessages(history)
+	sess.Agent.UpdateConfig(a.sessionAgentConfig(sess))
+	a.sessionsMu.Unlock()
+	_ = a.saveSessionByID(sessionID)
+
+	emit(a.ctx, sessionID, events.EventAgentStatus, events.AgentStatusPayload{
+		Status: "thinking",
+		Model:  sess.Model,
+	})
+
+	go func() {
+		defer func() {
+			cancel()
+			a.sessionsMu.Lock()
+			if s, ok := a.sessions[sessionID]; ok {
+				s.Cancel = nil
+			}
+			a.sessionsMu.Unlock()
+		}()
+
+		lastSave := time.Now()
+		result, err := sess.Agent.RunStreamDetailed(ctx, continuePrompt, func(update api.StreamUpdate) error {
+			if update.Content == "" && update.ReasoningContent == "" {
+				return nil
+			}
+			a.appendAssistantDelta(sessionID, update.Content, update.ReasoningContent)
+			emit(a.ctx, sessionID, events.EventStreamDelta, events.StreamDeltaPayload{
+				Content:          update.Content,
+				ReasoningContent: update.ReasoningContent,
+			})
+			if time.Since(lastSave) > 750*time.Millisecond {
+				_ = a.saveSessionByID(sessionID)
+				lastSave = time.Now()
+			}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				_ = a.saveSessionByID(sessionID)
+				emit(a.ctx, sessionID, events.EventStreamDone, events.StreamDonePayload{})
+				emit(a.ctx, sessionID, events.EventAgentStatus, events.AgentStatusPayload{
+					Status: "idle",
+					Model:  sess.Model,
+				})
+				return
+			}
+			friendly := friendlyErrorMessage(err)
+			a.recordLog("error", friendly)
+			emit(a.ctx, sessionID, events.EventError, events.ErrorPayload{
+				Message: friendly,
+				Code:    "AGENT_ERROR",
+			})
+			emit(a.ctx, sessionID, events.EventAgentStatus, events.AgentStatusPayload{
+				Status: "idle",
+				Model:  sess.Model,
+			})
+			return
+		}
+
+		if result == nil {
+			result = &agent.RunResult{FinishedAt: time.Now()}
+		}
+		metrics := runMetricsFromResult(result)
+		a.sessionsMu.Lock()
+		if s, ok := a.sessions[sessionID]; ok {
+			if len(s.Messages) > 0 && s.Messages[len(s.Messages)-1].Role == "assistant" {
+				last := s.Messages[len(s.Messages)-1]
+				last.Content = existingContent + result.Content
+				last.ReasoningContent = existingReasoning + result.ReasoningContent
+				s.Messages[len(s.Messages)-1] = last
+			}
+			s.UpdatedAt = time.Now()
+			if metrics != nil {
+				s.LastRun = metrics
+				s.Usage.Add(metrics.Usage)
+			}
+			s.AgentMessages = s.Agent.Messages()
+			s.ContextSummary = sess.ContextSummary
+		}
+		a.sessionsMu.Unlock()
+		_ = a.saveSessionByID(sessionID)
+
+		emit(a.ctx, sessionID, events.EventStreamDone, events.StreamDonePayload{
+			FullResponse: existingContent + result.Content,
+			Usage:        metricsUsage(metrics),
+			Metrics:      metrics,
+			FinishReason: result.FinishReason,
+			Truncated:    isTruncatedFinishReason(result.FinishReason),
+		})
+		emit(a.ctx, sessionID, events.EventAgentStatus, events.AgentStatusPayload{
 			Status: "idle",
 			Model:  sess.Model,
 		})
@@ -540,9 +907,10 @@ func (a *App) runSessionStream(sessionID string, sess *Session, ctx context.Cont
 				})
 				return
 			}
-			a.recordLog("error", err.Error())
+			friendly := friendlyErrorMessage(err)
+			a.recordLog("error", friendly)
 			emit(a.ctx, sessionID, events.EventError, events.ErrorPayload{
-				Message: err.Error(),
+				Message: friendly,
 				Code:    "AGENT_ERROR",
 			})
 			emit(a.ctx, sessionID, events.EventAgentStatus, events.AgentStatusPayload{
@@ -580,6 +948,8 @@ func (a *App) runSessionStream(sessionID string, sess *Session, ctx context.Cont
 			FullResponse: result.Content,
 			Usage:        metricsUsage(metrics),
 			Metrics:      metrics,
+			FinishReason: result.FinishReason,
+			Truncated:    isTruncatedFinishReason(result.FinishReason),
 		})
 		emit(a.ctx, sessionID, events.EventAgentStatus, events.AgentStatusPayload{
 			Status: "idle",
@@ -738,7 +1108,7 @@ func (a *App) RegenerateMessage(req MessageIndexRequest) error {
 	sess.AgentMessages = append([]api.Message(nil), history...)
 	sess.ContextSummary = ""
 	history = a.prepareSessionContextLocked(sess)
-	ctx, cancel := context.WithCancel(a.ctx)
+	ctx, cancel := context.WithCancel(tools.WithSessionID(a.ctx, req.SessionID))
 	now := time.Now()
 	sess.Cancel = cancel
 	sess.Model = a.cfg.Model
@@ -777,6 +1147,64 @@ func (a *App) GetHistory(sessionID string) []api.Message {
 	return nil
 }
 
+type ContextSummaryResult struct {
+	Summary string `json:"summary"`
+	Tokens  int    `json:"tokens"`
+}
+
+func (a *App) GetContextSummary(sessionID string) ContextSummaryResult {
+	a.sessionsMu.RLock()
+	defer a.sessionsMu.RUnlock()
+	if sess, ok := a.sessions[sessionID]; ok {
+		return ContextSummaryResult{
+			Summary: sess.ContextSummary,
+			Tokens:  approxContextTokens(sess.ContextSummary),
+		}
+	}
+	return ContextSummaryResult{}
+}
+
+type UpdateContextSummaryRequest struct {
+	SessionID string `json:"sessionId"`
+	Summary   string `json:"summary"`
+}
+
+func (a *App) UpdateContextSummary(req UpdateContextSummaryRequest) error {
+	a.sessionsMu.Lock()
+	sess, ok := a.sessions[req.SessionID]
+	if !ok {
+		a.sessionsMu.Unlock()
+		return fmt.Errorf("session not found: %s", req.SessionID)
+	}
+	sess.ContextSummary = req.Summary
+	sess.UpdatedAt = time.Now()
+	a.sessionsMu.Unlock()
+	return a.saveSessionByID(req.SessionID)
+}
+
+func (a *App) ArchiveSession(sessionID string) error {
+	a.sessionsMu.Lock()
+	sess, ok := a.sessions[sessionID]
+	if !ok {
+		a.sessionsMu.Unlock()
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	if sess.Cancel != nil {
+		a.sessionsMu.Unlock()
+		return fmt.Errorf("cannot archive running session")
+	}
+	sess.Name = "[Archived] " + sess.Name
+	sess.UpdatedAt = time.Now()
+	a.sessionsMu.Unlock()
+	_ = a.saveSessionByID(sessionID)
+
+	runtime.EventsEmit(a.ctx, string(events.EventSessionUpdate), events.SessionUpdatePayload{
+		SessionID: sessionID,
+		Action:    "updated",
+	})
+	return nil
+}
+
 // ============================================================================
 // Tool Execution (for tool visualization)
 // ============================================================================
@@ -807,6 +1235,22 @@ type FileEntry struct {
 	IsDir    bool        `json:"isDir"`
 	Size     int64       `json:"size"`
 	Children []FileEntry `json:"children,omitempty"`
+}
+
+type FileSnippet struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	Content   string `json:"content"`
+	Truncated bool   `json:"truncated"`
+	Binary    bool   `json:"binary"`
+}
+
+type FileSearchResult struct {
+	Name         string `json:"name"`
+	Path         string `json:"path"`
+	RelativePath string `json:"relativePath"`
+	Size         int64  `json:"size"`
 }
 
 func (a *App) ListDirectory(dirPath string) ([]FileEntry, error) {
@@ -845,12 +1289,115 @@ func (a *App) ListDirectory(dirPath string) ([]FileEntry, error) {
 	return result, nil
 }
 
+func (a *App) SearchWorkspaceFiles(query string, limit int) ([]FileSearchResult, error) {
+	query = strings.TrimSpace(query)
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	maxCandidates := limit * 20
+	root, err := filepath.Abs(a.GetWorkspaceDir())
+	if err != nil {
+		return nil, err
+	}
+	needle := strings.ToLower(strings.TrimPrefix(query, "@"))
+	var results []FileSearchResult
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := entry.Name()
+		if entry.IsDir() {
+			if path != root && shouldHideFileEntry(name) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if shouldHideFileEntry(name) {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if needle != "" {
+			haystack := strings.ToLower(rel + " " + name)
+			if !strings.Contains(haystack, needle) {
+				return nil
+			}
+		}
+		info, _ := entry.Info()
+		item := FileSearchResult{
+			Name:         name,
+			Path:         path,
+			RelativePath: rel,
+		}
+		if info != nil {
+			item.Size = info.Size()
+		}
+		results = append(results, item)
+		if len(results) >= maxCandidates {
+			return errStopWalk
+		}
+		return nil
+	})
+	if errors.Is(err, errStopWalk) {
+		err = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		if fileSearchRank(results[i], needle) != fileSearchRank(results[j], needle) {
+			return fileSearchRank(results[i], needle) < fileSearchRank(results[j], needle)
+		}
+		return strings.ToLower(results[i].RelativePath) < strings.ToLower(results[j].RelativePath)
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
 func (a *App) ReadFileContent(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
+}
+
+func (a *App) ReadFileSnippet(path string, maxBytes int) (*FileSnippet, error) {
+	if maxBytes <= 0 {
+		maxBytes = 96 * 1024
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("path is a directory: %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	truncated := len(data) > maxBytes
+	if truncated {
+		data = data[:maxBytes]
+	}
+	snippet := &FileSnippet{
+		Name:      filepath.Base(path),
+		Path:      path,
+		Size:      info.Size(),
+		Content:   string(data),
+		Truncated: truncated,
+		Binary:    looksBinaryContent(data),
+	}
+	if snippet.Binary {
+		snippet.Content = ""
+	}
+	return snippet, nil
 }
 
 func (a *App) GetWorkspaceDir() string {
@@ -875,19 +1422,31 @@ func (a *App) OpenDirectoryDialog() (string, error) {
 // ============================================================================
 
 type AppSettings struct {
-	Model            string  `json:"model"`
-	Mode             string  `json:"mode"`
-	Portable         bool    `json:"portable"`
-	MinimizeToTray   bool    `json:"minimizeToTray"`
-	MaxTokens        int     `json:"maxTokens"`
-	Temperature      float64 `json:"temperature"`
-	BaseURL          string  `json:"baseUrl"`
-	ThinkingEnabled  bool    `json:"thinkingEnabled"`
-	ReasoningDisplay string  `json:"reasoningDisplay"`
-	AutoCowork       bool    `json:"autoCowork"`
-	InitialPrompt    string  `json:"initialPrompt"`
-	RoleCard         string  `json:"roleCard"`
-	WorldBook        string  `json:"worldBook"`
+	Model            string            `json:"model"`
+	Mode             string            `json:"mode"`
+	Portable         bool              `json:"portable"`
+	MinimizeToTray   bool              `json:"minimizeToTray"`
+	MaxTokens        int               `json:"maxTokens"`
+	Temperature      float64           `json:"temperature"`
+	BaseURL          string            `json:"baseUrl"`
+	APITimeout       int               `json:"apiTimeout"`
+	APIMaxRetries    int               `json:"apiMaxRetries"`
+	APIProxyURL      string            `json:"apiProxyUrl"`
+	ThinkingEnabled  bool              `json:"thinkingEnabled"`
+	ReasoningDisplay string            `json:"reasoningDisplay"`
+	AutoCowork       bool              `json:"autoCowork"`
+	ToolMode         string            `json:"toolMode"`
+	ToolOverrides    map[string]string `json:"toolOverrides"`
+	BashBlocklist    []string          `json:"bashBlocklist"`
+	InitialPrompt    string            `json:"initialPrompt"`
+	RoleCard         string            `json:"roleCard"`
+	WorldBook        string            `json:"worldBook"`
+	OCREnabled       bool              `json:"ocrEnabled"`
+	OCRProvider      string            `json:"ocrProvider"`
+	OCRBaseURL       string            `json:"ocrBaseUrl"`
+	OCRModel         string            `json:"ocrModel"`
+	OCRPrompt        string            `json:"ocrPrompt"`
+	OCRTimeout       int               `json:"ocrTimeout"`
 }
 
 func (a *App) GetSettings() AppSettings {
@@ -899,12 +1458,24 @@ func (a *App) GetSettings() AppSettings {
 		MaxTokens:        a.cfg.MaxTokens,
 		Temperature:      a.cfg.Temperature,
 		BaseURL:          a.cfg.API.BaseURL,
+		APITimeout:       a.cfg.API.TimeoutSeconds,
+		APIMaxRetries:    a.cfg.API.MaxRetries,
+		APIProxyURL:      a.cfg.API.ProxyURL,
 		ThinkingEnabled:  a.cfg.ThinkingEnabled,
 		ReasoningDisplay: normalizeReasoningDisplay(a.cfg.ReasoningDisplay),
 		AutoCowork:       a.cfg.AutoCowork,
+		ToolMode:         normalizeSafetyToolMode(a.cfg.Safety.ToolMode),
+		ToolOverrides:    normalizeSafetyToolOverrides(a.cfg.Safety.ToolOverrides),
+		BashBlocklist:    normalizeBashBlocklist(a.cfg.Safety.BashBlocklist),
 		InitialPrompt:    a.cfg.InitialPrompt,
 		RoleCard:         a.cfg.RoleCard,
 		WorldBook:        a.cfg.WorldBook,
+		OCREnabled:       a.cfg.OCR.Enabled,
+		OCRProvider:      normalizeOCRProvider(a.cfg.OCR.Provider),
+		OCRBaseURL:       a.cfg.OCR.BaseURL,
+		OCRModel:         a.cfg.OCR.Model,
+		OCRPrompt:        a.cfg.OCR.Prompt,
+		OCRTimeout:       a.cfg.OCR.TimeoutSeconds,
 	}
 }
 
@@ -912,9 +1483,16 @@ func (a *App) UpdateSettings(settings AppSettings) error {
 	settings.Model = strings.TrimSpace(settings.Model)
 	settings.Mode = normalizeAppMode(settings.Mode)
 	settings.BaseURL = strings.TrimRight(strings.TrimSpace(settings.BaseURL), "/")
+	settings.APIProxyURL = strings.TrimSpace(settings.APIProxyURL)
+	settings.ToolMode = normalizeSafetyToolMode(settings.ToolMode)
+	settings.ToolOverrides = normalizeSafetyToolOverrides(settings.ToolOverrides)
+	settings.BashBlocklist = normalizeBashBlocklist(settings.BashBlocklist)
 	settings.InitialPrompt = normalizeInitialPrompt(settings.InitialPrompt)
 	settings.RoleCard = normalizeInitialPrompt(settings.RoleCard)
 	settings.WorldBook = normalizeInitialPrompt(settings.WorldBook)
+	settings.OCRBaseURL = strings.TrimRight(strings.TrimSpace(settings.OCRBaseURL), "/")
+	settings.OCRModel = strings.TrimSpace(settings.OCRModel)
+	settings.OCRPrompt = normalizeInitialPrompt(settings.OCRPrompt)
 	if settings.Model == "" {
 		return fmt.Errorf("model is required")
 	}
@@ -923,6 +1501,15 @@ func (a *App) UpdateSettings(settings AppSettings) error {
 	}
 	if settings.MaxTokens <= 0 {
 		return fmt.Errorf("max tokens must be positive")
+	}
+	if settings.APITimeout <= 0 {
+		settings.APITimeout = 120
+	}
+	if settings.APIMaxRetries < 0 {
+		settings.APIMaxRetries = 0
+	}
+	if settings.APIMaxRetries > 10 {
+		settings.APIMaxRetries = 10
 	}
 	if len(settings.InitialPrompt) > 60000 {
 		return fmt.Errorf("initial prompt is too long; keep it under 60000 characters")
@@ -933,6 +1520,9 @@ func (a *App) UpdateSettings(settings AppSettings) error {
 	if len(settings.WorldBook) > 60000 {
 		return fmt.Errorf("world book is too long; keep it under 60000 characters")
 	}
+	if settings.OCRTimeout <= 0 {
+		settings.OCRTimeout = 60
+	}
 	a.cfg.Model = settings.Model
 	a.cfg.Mode = settings.Mode
 	a.cfg.Portable = settings.Portable
@@ -940,12 +1530,28 @@ func (a *App) UpdateSettings(settings AppSettings) error {
 	a.cfg.MaxTokens = settings.MaxTokens
 	a.cfg.Temperature = settings.Temperature
 	a.cfg.API.BaseURL = settings.BaseURL
+	a.cfg.API.TimeoutSeconds = settings.APITimeout
+	a.cfg.API.MaxRetries = settings.APIMaxRetries
+	a.cfg.API.ProxyURL = settings.APIProxyURL
 	a.cfg.ThinkingEnabled = settings.ThinkingEnabled
 	a.cfg.ReasoningDisplay = normalizeReasoningDisplay(settings.ReasoningDisplay)
 	a.cfg.AutoCowork = settings.AutoCowork
+	a.cfg.Safety.ToolMode = settings.ToolMode
+	a.cfg.Safety.ToolOverrides = settings.ToolOverrides
+	a.cfg.Safety.BashBlocklist = settings.BashBlocklist
 	a.cfg.InitialPrompt = settings.InitialPrompt
 	a.cfg.RoleCard = settings.RoleCard
 	a.cfg.WorldBook = settings.WorldBook
+	a.cfg.OCR.Enabled = settings.OCREnabled
+	a.cfg.OCR.Provider = normalizeOCRProvider(settings.OCRProvider)
+	a.cfg.OCR.BaseURL = settings.OCRBaseURL
+	a.cfg.OCR.Model = settings.OCRModel
+	a.cfg.OCR.Prompt = settings.OCRPrompt
+	a.cfg.OCR.TimeoutSeconds = settings.OCRTimeout
+	if a.cfg.OCR.MaxImageBytes <= 0 {
+		a.cfg.OCR.MaxImageBytes = 8 * 1024 * 1024
+	}
+	a.configureToolPolicy()
 	a.syncClientConfig()
 	a.syncSessionConfigs()
 	if err := a.cfg.Save(); err != nil {
@@ -971,6 +1577,20 @@ func (a *App) SetAPIKey(key string) error {
 	return nil
 }
 
+func (a *App) SetOCRAPIKey(key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("OCR API key is required")
+	}
+	a.cfg.OCR.APIKey = key
+	if err := a.cfg.Save(); err != nil {
+		a.recordLog("error", fmt.Sprintf("failed to save OCR API key: %v", err))
+		return fmt.Errorf("failed to save OCR API key: %w", err)
+	}
+	runtime.EventsEmit(a.ctx, "settings:updated", map[string]string{"ocrKeyStatus": "configured"})
+	return nil
+}
+
 func (a *App) ExportSettings() (string, error) {
 	defaultName := "deephermes-settings.yaml"
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
@@ -992,6 +1612,7 @@ func (a *App) ExportSettings() (string, error) {
 
 	exported := *a.cfg
 	exported.APIKey = ""
+	exported.OCR.APIKey = ""
 	data, err := yaml.Marshal(&exported)
 	if err != nil {
 		return "", err
@@ -1032,6 +1653,9 @@ func (a *App) ImportSettings() error {
 	if strings.TrimSpace(imported.APIKey) == "" {
 		imported.APIKey = a.cfg.APIKey
 	}
+	if strings.TrimSpace(imported.OCR.APIKey) == "" {
+		imported.OCR.APIKey = a.cfg.OCR.APIKey
+	}
 	imported.NormalizePaths()
 	a.cfg.Model = imported.Model
 	a.cfg.Mode = normalizeAppMode(imported.Mode)
@@ -1047,10 +1671,14 @@ func (a *App) ImportSettings() error {
 	a.cfg.WorldBook = imported.WorldBook
 	a.cfg.API = imported.API
 	a.cfg.APIKey = imported.APIKey
+	a.cfg.OCR = imported.OCR
+	a.cfg.Safety = imported.Safety
+	a.cfg.Safety.ToolMode = normalizeSafetyToolMode(a.cfg.Safety.ToolMode)
 	a.cfg.AllowedTools = append([]string(nil), imported.AllowedTools...)
 	a.cfg.Memory = imported.Memory
 	a.cfg.Plans = imported.Plans
 	a.cfg.Web = imported.Web
+	a.configureToolPolicy()
 	a.syncClientConfig()
 	a.syncSessionConfigs()
 	if err := a.cfg.Save(); err != nil {
@@ -1096,6 +1724,80 @@ func (a *App) GetAPIKeyStatus() string {
 	return "missing"
 }
 
+type APIKeyTestRequest struct {
+	APIKey         string `json:"apiKey"`
+	BaseURL        string `json:"baseUrl"`
+	Model          string `json:"model"`
+	TimeoutSeconds int    `json:"timeoutSeconds"`
+	MaxRetries     int    `json:"maxRetries"`
+	ProxyURL       string `json:"proxyUrl"`
+}
+
+type APIKeyTestResult struct {
+	OK        bool   `json:"ok"`
+	Message   string `json:"message"`
+	LatencyMs int64  `json:"latencyMs"`
+}
+
+func (a *App) TestAPIKey(req APIKeyTestRequest) (*APIKeyTestResult, error) {
+	key := strings.TrimSpace(req.APIKey)
+	if key == "" {
+		key = a.cfg.GetAPIKey()
+	}
+	if key == "" {
+		return &APIKeyTestResult{OK: false, Message: "API key is missing"}, nil
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(req.BaseURL), "/")
+	if baseURL == "" {
+		baseURL = a.cfg.API.BaseURL
+	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = a.cfg.Model
+	}
+	timeoutSeconds := req.TimeoutSeconds
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = a.cfg.API.TimeoutSeconds
+	}
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 120
+	}
+	maxRetries := req.MaxRetries
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	if maxRetries > 3 {
+		maxRetries = 3
+	}
+	proxyURL := strings.TrimSpace(req.ProxyURL)
+	if proxyURL == "" {
+		proxyURL = a.cfg.API.ProxyURL
+	}
+
+	client := api.NewClient(baseURL, model, key, maxRetries)
+	client.UpdateConfig(baseURL, model, key, maxRetries, timeoutSeconds, false, proxyURL)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, err := client.ChatContext(ctx, []api.Message{{Role: "user", Content: "Reply with OK."}}, nil, 8, 0)
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		message := friendlyErrorMessage(err)
+		a.recordLog("error", "API key test failed: "+message)
+		return &APIKeyTestResult{OK: false, Message: message, LatencyMs: latency}, nil
+	}
+	a.recordLog("info", fmt.Sprintf("API key test succeeded in %dms", latency))
+	return &APIKeyTestResult{OK: true, Message: "API key is valid", LatencyMs: latency}, nil
+}
+
+func (a *App) GetOCRAPIKeyStatus() string {
+	if a.cfg.GetOCRAPIKey() != "" {
+		return "configured"
+	}
+	return "missing"
+}
+
 // ============================================================================
 // Cowork - Sub-agent Management
 // ============================================================================
@@ -1110,7 +1812,7 @@ type SpawnSubAgentRequest struct {
 func (a *App) SpawnSubAgent(req SpawnSubAgentRequest) (string, error) {
 	id := fmt.Sprintf("subagent-%d", time.Now().UnixMilli())
 
-	ctx, cancel := context.WithCancel(a.ctx)
+	ctx, cancel := context.WithCancel(tools.WithSessionID(a.ctx, req.ParentSessionID))
 
 	sa := &SubAgentRuntime{
 		ID:        id,
@@ -1130,6 +1832,7 @@ func (a *App) SpawnSubAgent(req SpawnSubAgentRequest) (string, error) {
 
 	// Build sub-agent with restricted tools
 	subReg := buildRegistryForType(req.AgentType)
+	a.configureRegistryPolicy(subReg)
 	subAgent := agent.New(a.client, subReg, a.agentConfig())
 
 	go func() {
@@ -1356,6 +2059,84 @@ func normalizeReasoningDisplay(mode string) string {
 	}
 }
 
+func normalizeSafetyToolMode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case string(tools.ToolModeReadOnly):
+		return string(tools.ToolModeReadOnly)
+	case string(tools.ToolModeAuto):
+		return string(tools.ToolModeAuto)
+	case string(tools.ToolModeConfirm):
+		return string(tools.ToolModeConfirm)
+	default:
+		return string(tools.ToolModeConfirm)
+	}
+}
+
+func normalizeSafetyToolOverrides(overrides map[string]string) map[string]string {
+	if len(overrides) == 0 {
+		return nil
+	}
+	normalized := make(map[string]string, len(overrides))
+	for name, mode := range overrides {
+		name = strings.TrimSpace(name)
+		mode = strings.TrimSpace(mode)
+		if name == "" || mode == "" {
+			continue
+		}
+		normalized[name] = normalizeSafetyToolMode(mode)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeBashBlocklist(patterns []string) []string {
+	if len(patterns) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(patterns))
+	normalized := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if _, ok := seen[pattern]; ok {
+			continue
+		}
+		seen[pattern] = struct{}{}
+		normalized = append(normalized, pattern)
+	}
+	return normalized
+}
+
+func friendlyErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := strings.TrimSpace(err.Error())
+	lower := strings.ToLower(message)
+	switch {
+	case strings.Contains(lower, "reasoning_content"):
+		return "DeepSeek 拒绝了请求：reasoning_content 不能作为普通历史消息传回。请重试；如果仍出现，关闭思考显示或新建会话可绕过旧历史。原始错误：" + message
+	case strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "api key"):
+		return "API Key 无效或未配置。请在设置里重新粘贴 DeepSeek API Key，并使用“测试 Key”验证。原始错误：" + message
+	case strings.Contains(lower, "429") || strings.Contains(lower, "rate limit"):
+		return "请求被限流或并发过高。稍等一会儿再试，或降低并发/输出长度。原始错误：" + message
+	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded"):
+		return "请求超时。可以在设置的 API 网络页提高超时时间，或检查代理/网络连接。原始错误：" + message
+	case strings.Contains(lower, "proxyconnect") || strings.Contains(lower, "proxy") || strings.Contains(lower, "connectex"):
+		return "网络或代理连接失败。请检查设置里的代理 URL 是否可用，或先清空代理再测试。原始错误：" + message
+	case strings.Contains(lower, "no such host") || strings.Contains(lower, "dns"):
+		return "无法解析 API 地址。请检查 Base URL、DNS 或代理设置。原始错误：" + message
+	case strings.Contains(lower, "400") || strings.Contains(lower, "invalid_request_error"):
+		return "DeepSeek 返回 400 请求错误。通常是模型参数、消息格式或上下文内容不符合接口要求。原始错误：" + message
+	default:
+		return message
+	}
+}
+
 func normalizeInitialPrompt(prompt string) string {
 	prompt = strings.ReplaceAll(prompt, "\r\n", "\n")
 	prompt = strings.ReplaceAll(prompt, "\r", "\n")
@@ -1371,11 +2152,52 @@ func normalizeAppMode(mode string) string {
 	}
 }
 
+func looksBinaryContent(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	sampleSize := len(data)
+	if sampleSize > 4096 {
+		sampleSize = 4096
+	}
+	sample := data[:sampleSize]
+	noise := 0
+	for _, b := range sample {
+		if b == 0 {
+			return true
+		}
+		if b < 32 && b != '\n' && b != '\r' && b != '\t' {
+			noise++
+		}
+	}
+	return float64(noise)/float64(len(sample)) > 0.02
+}
+
 func shouldHideFileEntry(name string) bool {
 	switch name {
 	case ".git", ".gocache-codex", "node_modules", "dist", "build":
 		return true
 	default:
 		return false
+	}
+}
+
+func fileSearchRank(result FileSearchResult, needle string) int {
+	if needle == "" {
+		return 3
+	}
+	name := strings.ToLower(result.Name)
+	rel := strings.ToLower(result.RelativePath)
+	switch {
+	case name == needle:
+		return 0
+	case strings.HasPrefix(name, needle):
+		return 1
+	case strings.Contains(name, needle):
+		return 2
+	case strings.Contains(rel, needle):
+		return 3
+	default:
+		return 4
 	}
 }

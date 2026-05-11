@@ -1,0 +1,98 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test-go:
+    name: Go Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - run: go test ./...
+
+  test-frontend:
+    name: Frontend Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+        working-directory: frontend
+
+      - run: npx tsc --noEmit
+        working-directory: frontend
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    needs: [test-go, test-frontend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: |
+          npx tsc
+          npx vite build
+        working-directory: frontend
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          $Commit = git rev-parse --short HEAD
+          $BuildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $Version = "${{ steps.version.outputs.version }}"
+          $LdFlags = "-w -s -H windowsgui -X github.com/ad201/deephermes/app.Version=$Version -X github.com/ad201/deephermes/app.BuildCommit=$Commit -X github.com/ad201/deephermes/app.BuildDate=$BuildDate"
+          go build -buildvcs=false -tags "desktop,production" -ldflags $LdFlags -o build/bin/DeepHermes.exe .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeepHermes-windows-amd64
+          path: build/bin/DeepHermes.exe
+          retention-days: 30

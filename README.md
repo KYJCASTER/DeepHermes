@@ -7,17 +7,32 @@ DeepHermes is a Windows desktop agent client optimized for DeepSeek models. It i
 ## Features
 
 - DeepSeek API key setup and local configuration persistence.
+- API key validation before saving, plus visible request timeout, retry, and proxy settings.
 - Default model profile tuned for `deepseek-v4-pro`.
 - Persistent chat sessions restored across app restarts.
+- Session search across recent chat content and metadata.
 - Message editing, deletion, regeneration, and branch-from-message workflows.
 - Streaming chat UI with reasoning content support and display controls.
 - Token usage, output speed, reasoning token, and DeepSeek cache hit/miss tracking.
+- DeepSeek finish-reason tracking with one-click continuation when a reply hits the output limit.
+- `Ctrl+K` command palette for fast session, settings, cowork, theme, and tool-log actions.
 - DeepSeek model profiles for V4 Pro and V4 Flash, including context window, output limits, recommended parameters, legacy-model warnings, and estimated CNY cost.
+- Friendlier DeepSeek/API error explanations for invalid keys, 400 request issues, rate limits, timeouts, DNS, and proxy failures.
 - Custom initial system prompt with tavern-style roleplay and interactive-fiction presets.
 - Role card and world book fields for lightweight tavern-style roleplay setup.
+- SillyTavern character-card import from JSON or PNG metadata into the role card and lorebook fields.
+- Prompt template library and slash commands such as `/char`, `/lore`, `/summary`, `/export`, `/review`, `/translate`, and `/write`.
+- Chat composer file drag-and-drop, pasted image OCR via configurable provider, and local input history navigation.
+- `@file` references in the chat composer for quickly searching workspace files and attaching snippets.
+- OpenAI-compatible OCR provider settings for screenshot/image text extraction without local OCR dependencies.
+- Tool safety modes: read-only, confirm before sensitive tools, or trusted auto-execute.
+- Confirmation prompts for destructive chat/session actions and model-initiated write, shell, or network tools.
+- Diff previews before approving model-initiated file writes or edits.
+- Tool activity panel showing model-initiated file, command, and network tool calls with arguments, results, and one-click rollback for file writes/edits.
 - Agent workspace panels for files, sessions, status, and cowork/subagent flows.
 - Resizable session and file sidebars with persisted layout preference.
 - Portable mode, settings import/export, diagnostics, build metadata, and persisted window size/position.
+- Tabbed settings dialog for API, model, prompts, OCR, desktop, and safety controls.
 - Optional close-to-background behavior with single-instance relaunch restoring the hidden window.
 - Light, dark, and fresh anime themes with persisted preference.
 - DeepSeek-inspired interface styling with smooth panel, button, and empty-state animations.
@@ -114,6 +129,21 @@ auto_cowork: false
 initial_prompt: ""
 role_card: ""
 world_book: ""
+api:
+  base_url: https://api.deepseek.com
+  timeout_seconds: 120
+  max_retries: 3
+  proxy_url: ""
+ocr:
+  enabled: false
+  provider: openai_compatible
+  base_url: ""
+  model: ""
+  prompt: "Extract all readable text from this image. Preserve line breaks when useful. If there is no readable text, briefly describe the visible content."
+  timeout_seconds: 60
+  max_image_bytes: 8388608
+safety:
+  tool_mode: confirm
 ```
 
 DeepSeek model prices are used only for local estimates in the UI. Prices can change, so check the official DeepSeek pricing page before treating estimates as billing truth.
@@ -122,10 +152,25 @@ The initial prompt, role card, and world book are injected as stable system-prom
 
 When `portable: true` is enabled, configuration and sessions are written to `DeepHermesData` next to the executable. When `minimize_to_tray: true` is enabled, closing the window hides it in the background; launching the exe again restores the existing window.
 
+OCR uses an API-based provider only. Configure an OpenAI-compatible vision endpoint, model, and OCR API key in Settings, or set:
+
+```powershell
+$env:DEEPHERMES_OCR_API_KEY = "your-ocr-provider-key"
+$env:DEEPHERMES_OCR_BASE_URL = "https://api.example.com/v1"
+$env:DEEPHERMES_OCR_MODEL = "your-vision-model"
+```
+
 You can override the DeepSeek API key with:
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "your-api-key"
+```
+
+Optional network and safety overrides:
+
+```powershell
+$env:DEEPHERMES_PROXY_URL = "http://127.0.0.1:7890"
+$env:DEEPHERMES_TOOL_MODE = "confirm" # read_only, confirm, or auto
 ```
 
 You can override the model with:

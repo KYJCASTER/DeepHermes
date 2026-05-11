@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   AbortMessage,
   BranchSession,
+  ContinueLastResponse,
   CreateSession,
   DeleteMessageAt,
   DeleteSession,
@@ -35,6 +36,8 @@ export interface RunMetrics {
   firstTokenMs: number;
   durationMs: number;
   tokensPerSec: number;
+  finishReason?: string;
+  truncated?: boolean;
 }
 
 export interface Session {
@@ -65,6 +68,7 @@ interface SessionStore {
   deleteMessage: (sessionId: string, index: number) => Promise<void>;
   regenerateMessage: (sessionId: string, index: number) => Promise<void>;
   branchSession: (sessionId: string, upToIndex: number) => Promise<string>;
+  continueLastResponse: (sessionId: string) => Promise<void>;
   abortMessage: (sessionId: string) => Promise<void>;
   appendToStream: (sessionId: string, content: string, reasoningContent?: string) => void;
   finishStream: (sessionId: string, metrics?: RunMetrics) => void;
@@ -179,6 +183,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               msgCount: s.messages.length + 1,
               streaming: true,
               status: "thinking",
+              lastRun: undefined,
             }
           : s
       ),
@@ -233,6 +238,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           msgCount: messages.length,
           streaming: true,
           status: "thinking" as const,
+          lastRun: undefined,
         };
       }),
     }));
@@ -262,6 +268,24 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       activeSessionId: result.id,
     }));
     return result.id;
+  },
+
+  continueLastResponse: async (sessionId: string) => {
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === sessionId
+          ? { ...s, streaming: true, status: "thinking" as const, lastRun: undefined }
+          : s
+      ),
+    }));
+    try {
+      await ContinueLastResponse(sessionId);
+    } catch (e: any) {
+      const detail = e?.message || String(e);
+      get().appendToStream(sessionId, `\n\nContinuation failed: ${detail}`);
+      get().finishStream(sessionId);
+      throw e;
+    }
   },
 
   abortMessage: async (sessionId: string) => {

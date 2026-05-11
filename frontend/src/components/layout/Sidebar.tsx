@@ -1,5 +1,6 @@
-import { Clock3, MessageSquare, Plus, Trash2 } from "lucide-react";
+import { Clock3, MessageSquare, Plus, Search, Trash2, X } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
+import { useMemo, useState } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useI18n } from "../../stores/i18nStore";
 import { useLayoutStore } from "../../stores/layoutStore";
@@ -16,6 +17,7 @@ function compactNumber(value: number) {
 }
 
 export default function Sidebar() {
+  const [query, setQuery] = useState("");
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
@@ -24,6 +26,18 @@ export default function Sidebar() {
   const sidebarWidth = useLayoutStore((s) => s.sidebarWidth);
   const setSidebarWidth = useLayoutStore((s) => s.setSidebarWidth);
   const { t } = useI18n();
+  const filteredSessions = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return sessions;
+    return sessions.filter((session) => {
+      const haystack = [
+        session.name,
+        session.model,
+        ...session.messages.slice(-12).map((message) => message.content),
+      ].join("\n").toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [query, sessions]);
 
   const startResize = (event: ReactMouseEvent) => {
     event.preventDefault();
@@ -62,10 +76,30 @@ export default function Sidebar() {
           <Plus size={15} />
           {t("sessions.new")}
         </button>
+        <div className="mt-3 flex items-center gap-2 rounded border border-border bg-bg/70 px-2 py-1.5">
+          <Search size={13} className="shrink-0 text-dim" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("sessions.search")}
+            className="min-w-0 flex-1 bg-transparent text-xs text-text outline-none placeholder:text-dim"
+          />
+          {query && (
+            <button onClick={() => setQuery("")} className="text-dim transition hover:text-text" title={t("settings.cancel")}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
-        {sessions.map((s) => {
+        {filteredSessions.length === 0 && (
+          <div className="flex flex-col items-center px-3 py-10 text-center text-xs leading-5 text-dim">
+            <MessageSquare size={28} className="mb-3 text-border" />
+            <span>{query ? t("sessions.searchEmpty") : t("sessions.searchEmpty")}</span>
+          </div>
+        )}
+        {filteredSessions.map((s) => {
           const active = s.id === activeSessionId;
           return (
             <div
@@ -96,6 +130,7 @@ export default function Sidebar() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (!window.confirm(t("confirm.deleteSession"))) return;
                     deleteSession(s.id);
                   }}
                   className="rounded p-1 text-dim opacity-0 transition hover:bg-red/10 hover:text-red group-hover:opacity-100"

@@ -17,6 +17,7 @@ func TestRunMetricsFromResult(t *testing.T) {
 		StartedAt:    start,
 		FirstTokenAt: first,
 		FinishedAt:   finish,
+		FinishReason: "length",
 		Usage: &api.Usage{
 			PromptTokens:          100,
 			CompletionTokens:      20,
@@ -40,5 +41,8 @@ func TestRunMetricsFromResult(t *testing.T) {
 	}
 	if metrics.Usage.PromptCacheHitTokens != 70 || metrics.Usage.ReasoningTokens != 8 {
 		t.Fatalf("unexpected usage: %#v", metrics.Usage)
+	}
+	if metrics.FinishReason != "length" || !metrics.Truncated {
+		t.Fatalf("expected truncated length finish reason, got %#v", metrics)
 	}
 }

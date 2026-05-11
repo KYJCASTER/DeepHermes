@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"time"
 
 	"github.com/ad201/deephermes/pkg/agent"
@@ -70,9 +71,19 @@ func runMetricsFromResult(result *agent.RunResult) *RunMetrics {
 		FirstTokenMs: firstTokenMs,
 		DurationMs:   duration.Milliseconds(),
 		TokensPerSec: tokensPerSec,
+		FinishReason: strings.TrimSpace(result.FinishReason),
+		Truncated:    isTruncatedFinishReason(result.FinishReason),
 	}
 	if !result.FirstTokenAt.IsZero() {
 		metrics.FirstTokenAt = result.FirstTokenAt.Format(time.RFC3339)
 	}
 	return metrics
+}
+
+func isTruncatedFinishReason(reason string) bool {
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	return reason == "length" ||
+		reason == "max_tokens" ||
+		strings.Contains(reason, "max_token") ||
+		strings.Contains(reason, "max_output")
 }

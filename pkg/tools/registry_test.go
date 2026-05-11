@@ -4,7 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ad201/deephermes/pkg/api"
 )
 
 func TestRegistryRegisterAndGet(t *testing.T) {
@@ -44,6 +47,134 @@ func TestRegistryToAPITools(t *testing.T) {
 	}
 	if defs[0].Function.Name != "read_file" {
 		t.Errorf("expected read_file, got %s", defs[0].Function.Name)
+	}
+}
+
+func TestRegistryReadOnlyBlocksWriteTools(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&WriteFile{})
+	reg.SetPolicy(Policy{Mode: string(ToolModeReadOnly)})
+
+	_, err := reg.Execute(context.Background(), api.ToolCall{
+		ID: "call-write",
+		Function: api.FunctionCall{
+			Name:      "write_file",
+			Arguments: `{"file_path":"test.txt","content":"blocked"}`,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected read-only mode to block write_file")
+	}
+}
+
+func TestRegistryConfirmPolicyUsesApprovalCallback(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&WriteFile{})
+	dir := t.TempDir()
+	path := filepath.Join(dir, "approved.txt")
+	var requested ApprovalRequest
+	reg.SetPolicy(Policy{
+		Mode: string(ToolModeConfirm),
+		Approval: func(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error) {
+			requested = req
+			return ApprovalDecision{Approved: true}, nil
+		},
+	})
+
+	_, err := reg.Execute(WithSessionID(context.Background(), "session-1"), api.ToolCall{
+		ID: "call-write",
+		Function: api.FunctionCall{
+			Name:      "write_file",
+			Arguments: `{"file_path":"` + filepath.ToSlash(path) + `","content":"approved"}`,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requested.SessionID != "session-1" {
+		t.Fatalf("expected session id to be forwarded, got %q", requested.SessionID)
+	}
+	if requested.Risk != string(ToolRiskWrite) {
+		t.Fatalf("expected write risk, got %q", requested.Risk)
+	}
+}
+
+func TestRegistryToolOverrideAllowsWriteInReadOnlyMode(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&WriteFile{})
+	dir := t.TempDir()
+	path := filepath.Join(dir, "override.txt")
+	reg.SetPolicy(Policy{
+		Mode: string(ToolModeReadOnly),
+		ToolOverrides: map[string]string{
+			"write_file": string(ToolModeAuto),
+		},
+	})
+
+	_, err := reg.Execute(context.Background(), api.ToolCall{
+		ID: "call-write-override",
+		Function: api.FunctionCall{
+			Name:      "write_file",
+			Arguments: `{"file_path":"` + filepath.ToSlash(path) + `","content":"allowed"}`,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "allowed" {
+		t.Fatalf("expected override to allow write, got %q", string(data))
+	}
+}
+
+func TestRegistryToolOverrideCanTightenPolicy(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&WriteFile{})
+	reg.SetPolicy(Policy{
+		Mode: string(ToolModeAuto),
+		ToolOverrides: map[string]string{
+			"write_file": string(ToolModeReadOnly),
+		},
+	})
+
+	_, err := reg.Execute(context.Background(), api.ToolCall{
+		ID: "call-write-blocked",
+		Function: api.FunctionCall{
+			Name:      "write_file",
+			Arguments: `{"file_path":"blocked.txt","content":"blocked"}`,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected tool override to block write_file")
+	}
+	if !strings.Contains(err.Error(), "read-only mode") {
+		t.Fatalf("expected read-only error, got %v", err)
+	}
+}
+
+func TestRegistryBashBlocklistBlocksCommand(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&Bash{})
+	reg.SetPolicy(Policy{
+		Mode:          string(ToolModeAuto),
+		BashBlocklist: []string{"rm -rf /"},
+	})
+
+	_, err := reg.Execute(context.Background(), api.ToolCall{
+		ID: "call-bash-blocked",
+		Function: api.FunctionCall{
+			Name:      "bash",
+			Arguments: `{"command":"echo before && rm -rf /"}`,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected bash blocklist to reject command")
+	}
+	if !strings.Contains(err.Error(), "blocked pattern") {
+		t.Fatalf("expected blocklist error, got %v", err)
 	}
 }
 

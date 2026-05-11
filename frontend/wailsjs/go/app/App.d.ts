@@ -5,11 +5,21 @@ import {api} from '../models';
 
 export function AbortMessage(arg1:string):Promise<void>;
 
+export function ApproveToolCall(arg1:string):Promise<void>;
+
 export function BranchSession(arg1:app.BranchSessionRequest):Promise<app.CreateSessionResult>;
 
 export function CancelSubAgent(arg1:string):Promise<void>;
 
+export function ContinueLastResponse(arg1:string):Promise<void>;
+
 export function CreateSession(arg1:string):Promise<app.CreateSessionResult>;
+
+export function GetContextSummary(arg1:string):Promise<app.ContextSummaryResult>;
+
+export function UpdateContextSummary(arg1:app.UpdateContextSummaryRequest):Promise<void>;
+
+export function ArchiveSession(arg1:string):Promise<void>;
 
 export function DeleteMessage(arg1:app.MessageIndexRequest):Promise<void>;
 
@@ -25,6 +35,8 @@ export function GetHistory(arg1:string):Promise<Array<api.Message>>;
 
 export function GetModelInfo():Promise<Record<string, any>>;
 
+export function GetOCRAPIKeyStatus():Promise<string>;
+
 export function GetSettings():Promise<app.AppSettings>;
 
 export function GetSubAgents():Promise<Array<app.SubAgentStatus>>;
@@ -34,6 +46,8 @@ export function GetWorkspaceDir():Promise<string>;
 export function HideMainWindow():Promise<void>;
 
 export function ImportSettings():Promise<void>;
+
+export function ImportCharacterCard():Promise<app.CharacterCardImportResult>;
 
 export function ListDirectory(arg1:string):Promise<Array<app.FileEntry>>;
 
@@ -45,21 +59,39 @@ export function OpenDirectoryDialog():Promise<string>;
 
 export function OpenFileDialog():Promise<string>;
 
+export function ListOCRPresets():Promise<Array<app.OCRProviderPreset>>;
+
+export function OCRImage(arg1:app.OCRImageRequest):Promise<app.OCRImageResult>;
+
+export function OCRImageFile(arg1:string):Promise<app.OCRImageResult>;
+
 export function QuitApp():Promise<void>;
 
 export function ReadFileContent(arg1:string):Promise<string>;
 
+export function ReadFileSnippet(arg1:string,arg2:number):Promise<app.FileSnippet>;
+
 export function RegenerateMessage(arg1:app.MessageIndexRequest):Promise<void>;
 
+export function RejectToolCall(arg1:string):Promise<void>;
+
 export function RestoreMainWindow():Promise<void>;
+
+export function RollbackToolChange(arg1:string):Promise<app.ToolRollbackResult>;
+
+export function SearchWorkspaceFiles(arg1:string,arg2:number):Promise<Array<app.FileSearchResult>>;
 
 export function SendMessage(arg1:app.SendMessageRequest):Promise<void>;
 
 export function SetAPIKey(arg1:string):Promise<void>;
 
+export function SetOCRAPIKey(arg1:string):Promise<void>;
+
 export function SetThinking(arg1:boolean):Promise<void>;
 
 export function SpawnSubAgent(arg1:app.SpawnSubAgentRequest):Promise<string>;
+
+export function TestAPIKey(arg1:app.APIKeyTestRequest):Promise<app.APIKeyTestResult>;
 
 export function UpdateMessage(arg1:app.UpdateMessageRequest):Promise<void>;
 

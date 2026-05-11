@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -148,13 +149,27 @@ type Client struct {
 
 func NewClient(baseURL, model, apiKey string, maxRetries int) *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		apiKey:  apiKey,
-		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
-		},
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		apiKey:     apiKey,
+		httpClient: newHTTPClient(120, ""),
 		model:      model,
 		maxRetries: maxRetries,
+	}
+}
+
+func newHTTPClient(timeoutSeconds int, proxyURL string) *http.Client {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 120
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if proxyURL = strings.TrimSpace(proxyURL); proxyURL != "" {
+		if parsed, err := url.Parse(proxyURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			transport.Proxy = http.ProxyURL(parsed)
+		}
+	}
+	return &http.Client{
+		Timeout:   time.Duration(timeoutSeconds) * time.Second,
+		Transport: transport,
 	}
 }
 
@@ -181,7 +196,7 @@ func (c *Client) snapshot() clientSnapshot {
 }
 
 // UpdateConfig updates all runtime API settings without rebuilding the app.
-func (c *Client) UpdateConfig(baseURL, model, apiKey string, maxRetries, timeoutSeconds int, thinkingEnabled bool) {
+func (c *Client) UpdateConfig(baseURL, model, apiKey string, maxRetries, timeoutSeconds int, thinkingEnabled bool, proxyURL string) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 120
 	}
@@ -196,7 +211,7 @@ func (c *Client) UpdateConfig(baseURL, model, apiKey string, maxRetries, timeout
 	c.apiKey = apiKey
 	c.maxRetries = maxRetries
 	c.thinkingEnabled = thinkingEnabled
-	c.httpClient = &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second}
+	c.httpClient = newHTTPClient(timeoutSeconds, proxyURL)
 }
 
 // UpdateAPIKey updates the client's API key (for runtime changes).

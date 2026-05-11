@@ -11,12 +11,24 @@ const defaultSettings = {
   maxTokens: 32768,
   temperature: 0.7,
   baseUrl: "https://api.deepseek.com",
+  apiTimeout: 120,
+  apiMaxRetries: 3,
+  apiProxyUrl: "",
   thinkingEnabled: false,
   reasoningDisplay: "collapse",
   autoCowork: false,
+  toolMode: "confirm",
+  toolOverrides: {} as Record<string, string>,
+  bashBlocklist: [] as string[],
   initialPrompt: "",
   roleCard: "",
   worldBook: "",
+  ocrEnabled: false,
+  ocrProvider: "openai_compatible",
+  ocrBaseUrl: "",
+  ocrModel: "",
+  ocrPrompt: "Extract all readable text from this image. Preserve line breaks when useful. If there is no readable text, briefly describe the visible content.",
+  ocrTimeout: 60,
 };
 
 function hasWailsBridge() {
@@ -82,12 +94,43 @@ export function AbortMessage(sessionId: string) {
   return invoke(() => AppBindings.AbortMessage(sessionId), () => undefined);
 }
 
+export function ContinueLastResponse(sessionId: string) {
+  return invoke(() => AppBindings.ContinueLastResponse(sessionId), () => undefined);
+}
+
+export function GetContextSummary(sessionId: string) {
+  return invoke(
+    () => AppBindings.GetContextSummary(sessionId),
+    () => ({ summary: "", tokens: 0 })
+  );
+}
+
+export function UpdateContextSummary(req: { sessionId: string; summary: string }) {
+  return invoke(() => AppBindings.UpdateContextSummary(req), () => undefined);
+}
+
+export function ArchiveSession(sessionId: string) {
+  return invoke(() => AppBindings.ArchiveSession(sessionId), () => undefined);
+}
+
 export function GetHistory(sessionId: string) {
   return invoke(() => AppBindings.GetHistory(sessionId), () => []);
 }
 
 export function ListTools() {
-  return invoke(() => AppBindings.ListTools(), () => []);
+  return invoke(
+    () => AppBindings.ListTools(),
+    () => [
+      { name: "read_file", description: "Read a file from the filesystem." },
+      { name: "write_file", description: "Write a file to the filesystem." },
+      { name: "edit_file", description: "Perform exact string replacements in a file." },
+      { name: "glob", description: "Find files by glob pattern." },
+      { name: "grep", description: "Search files with a regular expression." },
+      { name: "bash", description: "Execute a shell command." },
+      { name: "web_fetch", description: "Fetch a web page." },
+      { name: "web_search", description: "Search the web." },
+    ]
+  );
 }
 
 export function ListDirectory(dirPath: string) {
@@ -96,6 +139,56 @@ export function ListDirectory(dirPath: string) {
 
 export function ReadFileContent(path: string) {
   return invoke(() => AppBindings.ReadFileContent(path), () => "");
+}
+
+export function ReadFileSnippet(path: string, maxBytes: number) {
+  return invoke(
+    () => AppBindings.ReadFileSnippet(path, maxBytes),
+    () => ({
+      name: path.split(/[\\/]/).pop() || path,
+      path,
+      size: 0,
+      content: "",
+      truncated: false,
+      binary: false,
+    })
+  );
+}
+
+export function SearchWorkspaceFiles(query: string, limit = 20) {
+  return invoke(
+    () => AppBindings.SearchWorkspaceFiles(query, limit),
+    () => []
+  );
+}
+
+export function ListOCRPresets() {
+  return invoke(
+    () => AppBindings.ListOCRPresets(),
+    () => []
+  );
+}
+
+export function OCRImage(req: any) {
+  return invoke(
+    () => AppBindings.OCRImage(req),
+    () => ({
+      text: "",
+      provider: defaultSettings.ocrProvider,
+      model: defaultSettings.ocrModel,
+    })
+  );
+}
+
+export function OCRImageFile(path: string) {
+  return invoke(
+    () => AppBindings.OCRImageFile(path),
+    () => ({
+      text: "",
+      provider: defaultSettings.ocrProvider,
+      model: defaultSettings.ocrModel,
+    })
+  );
 }
 
 export function GetWorkspaceDir() {
@@ -124,6 +217,18 @@ export function ExportSettings() {
 
 export function ImportSettings() {
   return invoke(() => AppBindings.ImportSettings(), () => undefined);
+}
+
+export function ImportCharacterCard() {
+  return invoke(
+    () => AppBindings.ImportCharacterCard(),
+    () => ({
+      name: "Preview Character",
+      roleCard: "## Name\nPreview Character\n\n## Description\nPreview mode character card.",
+      worldBook: "",
+      source: "preview",
+    })
+  );
 }
 
 export function HideMainWindow() {
@@ -182,10 +287,40 @@ export function SetAPIKey(key: string) {
   );
 }
 
+export function TestAPIKey(req: any) {
+  return invoke(
+    () => AppBindings.TestAPIKey(req),
+    () => {
+      const configured = localStorage.getItem("deephermes.preview.apiKeyStatus") === "configured";
+      return {
+        ok: Boolean(req?.apiKey || configured),
+        message: "Preview mode",
+        latencyMs: 0,
+      };
+    }
+  );
+}
+
+export function SetOCRAPIKey(key: string) {
+  return invoke(
+    () => AppBindings.SetOCRAPIKey(key),
+    () => {
+      localStorage.setItem("deephermes.preview.ocrKeyStatus", key.trim() ? "configured" : "missing");
+    }
+  );
+}
+
 export function GetAPIKeyStatus() {
   return invoke(
     () => AppBindings.GetAPIKeyStatus(),
     () => localStorage.getItem("deephermes.preview.apiKeyStatus") || "missing"
+  );
+}
+
+export function GetOCRAPIKeyStatus() {
+  return invoke(
+    () => AppBindings.GetOCRAPIKeyStatus(),
+    () => localStorage.getItem("deephermes.preview.ocrKeyStatus") || "missing"
   );
 }
 
@@ -213,6 +348,26 @@ export function CancelSubAgent(id: string) {
 
 export function GetSubAgents() {
   return invoke(() => AppBindings.GetSubAgents(), () => []);
+}
+
+export function ApproveToolCall(id: string) {
+  return invoke(() => AppBindings.ApproveToolCall(id), () => undefined);
+}
+
+export function RejectToolCall(id: string) {
+  return invoke(() => AppBindings.RejectToolCall(id), () => undefined);
+}
+
+export function RollbackToolChange(id: string) {
+  return invoke(
+    () => AppBindings.RollbackToolChange(id),
+    () => ({
+      restored: true,
+      deleted: false,
+      path: "",
+      message: "Preview rollback",
+    })
+  );
 }
 
 export function WindowMinimise() {
@@ -253,6 +408,21 @@ export function WindowSetPosition(x: number, y: number) {
 
 export function Quit() {
   if (hasWailsBridge()) RuntimeBindings.Quit();
+}
+
+export function ClipboardSetText(text: string) {
+  return invoke(() => RuntimeBindings.ClipboardSetText(text), async () => {
+    await navigator.clipboard?.writeText(text);
+    return true;
+  });
+}
+
+export function OnFileDrop(callback: (x: number, y: number, paths: string[]) => void, useDropTarget = true) {
+  if (hasWailsBridge()) RuntimeBindings.OnFileDrop(callback, useDropTarget);
+}
+
+export function OnFileDropOff() {
+  if (hasWailsBridge()) RuntimeBindings.OnFileDropOff();
 }
 
 export function EventsOn(eventName: string, callback: EventHandler) {

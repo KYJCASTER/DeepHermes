@@ -6,6 +6,10 @@ export function AbortMessage(arg1) {
   return window['go']['app']['App']['AbortMessage'](arg1);
 }
 
+export function ApproveToolCall(arg1) {
+  return window['go']['app']['App']['ApproveToolCall'](arg1);
+}
+
 export function BranchSession(arg1) {
   return window['go']['app']['App']['BranchSession'](arg1);
 }
@@ -14,8 +18,24 @@ export function CancelSubAgent(arg1) {
   return window['go']['app']['App']['CancelSubAgent'](arg1);
 }
 
+export function ContinueLastResponse(arg1) {
+  return window['go']['app']['App']['ContinueLastResponse'](arg1);
+}
+
 export function CreateSession(arg1) {
   return window['go']['app']['App']['CreateSession'](arg1);
+}
+
+export function GetContextSummary(arg1) {
+  return window['go']['app']['App']['GetContextSummary'](arg1);
+}
+
+export function UpdateContextSummary(arg1) {
+  return window['go']['app']['App']['UpdateContextSummary'](arg1);
+}
+
+export function ArchiveSession(arg1) {
+  return window['go']['app']['App']['ArchiveSession'](arg1);
 }
 
 export function DeleteMessage(arg1) {
@@ -46,6 +66,10 @@ export function GetModelInfo() {
   return window['go']['app']['App']['GetModelInfo']();
 }
 
+export function GetOCRAPIKeyStatus() {
+  return window['go']['app']['App']['GetOCRAPIKeyStatus']();
+}
+
 export function GetSettings() {
   return window['go']['app']['App']['GetSettings']();
 }
@@ -64,6 +88,10 @@ export function HideMainWindow() {
 
 export function ImportSettings() {
   return window['go']['app']['App']['ImportSettings']();
+}
+
+export function ImportCharacterCard() {
+  return window['go']['app']['App']['ImportCharacterCard']();
 }
 
 export function ListDirectory(arg1) {
@@ -86,6 +114,18 @@ export function OpenFileDialog() {
   return window['go']['app']['App']['OpenFileDialog']();
 }
 
+export function ListOCRPresets() {
+  return window['go']['app']['App']['ListOCRPresets']();
+}
+
+export function OCRImage(arg1) {
+  return window['go']['app']['App']['OCRImage'](arg1);
+}
+
+export function OCRImageFile(arg1) {
+  return window['go']['app']['App']['OCRImageFile'](arg1);
+}
+
 export function QuitApp() {
   return window['go']['app']['App']['QuitApp']();
 }
@@ -94,12 +134,28 @@ export function ReadFileContent(arg1) {
   return window['go']['app']['App']['ReadFileContent'](arg1);
 }
 
+export function ReadFileSnippet(arg1, arg2) {
+  return window['go']['app']['App']['ReadFileSnippet'](arg1, arg2);
+}
+
 export function RegenerateMessage(arg1) {
   return window['go']['app']['App']['RegenerateMessage'](arg1);
 }
 
+export function RejectToolCall(arg1) {
+  return window['go']['app']['App']['RejectToolCall'](arg1);
+}
+
 export function RestoreMainWindow() {
   return window['go']['app']['App']['RestoreMainWindow']();
+}
+
+export function RollbackToolChange(arg1) {
+  return window['go']['app']['App']['RollbackToolChange'](arg1);
+}
+
+export function SearchWorkspaceFiles(arg1, arg2) {
+  return window['go']['app']['App']['SearchWorkspaceFiles'](arg1, arg2);
 }
 
 export function SendMessage(arg1) {
@@ -110,12 +166,20 @@ export function SetAPIKey(arg1) {
   return window['go']['app']['App']['SetAPIKey'](arg1);
 }
 
+export function SetOCRAPIKey(arg1) {
+  return window['go']['app']['App']['SetOCRAPIKey'](arg1);
+}
+
 export function SetThinking(arg1) {
   return window['go']['app']['App']['SetThinking'](arg1);
 }
 
 export function SpawnSubAgent(arg1) {
   return window['go']['app']['App']['SpawnSubAgent'](arg1);
+}
+
+export function TestAPIKey(arg1) {
+  return window['go']['app']['App']['TestAPIKey'](arg1);
 }
 
 export function UpdateMessage(arg1) {

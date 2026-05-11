@@ -23,6 +23,8 @@ type Config struct {
 	WorldBook        string       `yaml:"world_book,omitempty"`
 	API              APIConfig    `yaml:"api"`
 	APIKey           string       `yaml:"api_key,omitempty"`
+	OCR              OCRConfig    `yaml:"ocr"`
+	Safety           SafetyConfig `yaml:"safety"`
 	AllowedTools     []string     `yaml:"allowed_tools"`
 	Memory           MemoryConfig `yaml:"memory"`
 	Plans            PlansConfig  `yaml:"plans"`
@@ -34,6 +36,24 @@ type APIConfig struct {
 	BaseURL        string `yaml:"base_url"`
 	TimeoutSeconds int    `yaml:"timeout_seconds"`
 	MaxRetries     int    `yaml:"max_retries"`
+	ProxyURL       string `yaml:"proxy_url,omitempty"`
+}
+
+type OCRConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	Provider       string `yaml:"provider"`
+	BaseURL        string `yaml:"base_url,omitempty"`
+	Model          string `yaml:"model,omitempty"`
+	APIKey         string `yaml:"api_key,omitempty"`
+	Prompt         string `yaml:"prompt,omitempty"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
+	MaxImageBytes  int    `yaml:"max_image_bytes"`
+}
+
+type SafetyConfig struct {
+	ToolMode         string            `yaml:"tool_mode"`
+	ToolOverrides    map[string]string `yaml:"tool_overrides,omitempty"`
+	BashBlocklist    []string          `yaml:"bash_blocklist,omitempty"`
 }
 
 type MemoryConfig struct {
@@ -65,6 +85,16 @@ func Default() *Config {
 			BaseURL:        "https://api.deepseek.com",
 			TimeoutSeconds: 120,
 			MaxRetries:     3,
+		},
+		OCR: OCRConfig{
+			Enabled:        false,
+			Provider:       "openai_compatible",
+			TimeoutSeconds: 60,
+			MaxImageBytes:  8 * 1024 * 1024,
+			Prompt:         "Extract all readable text from this image. Preserve line breaks when useful. If there is no readable text, briefly describe the visible content.",
+		},
+		Safety: SafetyConfig{
+			ToolMode: "confirm",
 		},
 		Memory: MemoryConfig{
 			Enabled: true,
@@ -180,12 +210,31 @@ func (c *Config) GetAPIKey() string {
 	return os.Getenv("DEEPSEEK_API_KEY")
 }
 
+func (c *Config) GetOCRAPIKey() string {
+	if c.OCR.APIKey != "" {
+		return c.OCR.APIKey
+	}
+	return os.Getenv("DEEPHERMES_OCR_API_KEY")
+}
+
 func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("DEEPSEEK_MODEL"); v != "" {
 		c.Model = v
 	}
 	if v := os.Getenv("DEEPSEEK_BASE_URL"); v != "" {
 		c.API.BaseURL = v
+	}
+	if v := os.Getenv("DEEPHERMES_OCR_BASE_URL"); v != "" {
+		c.OCR.BaseURL = v
+	}
+	if v := os.Getenv("DEEPHERMES_OCR_MODEL"); v != "" {
+		c.OCR.Model = v
+	}
+	if v := os.Getenv("DEEPHERMES_PROXY_URL"); v != "" {
+		c.API.ProxyURL = v
+	}
+	if v := os.Getenv("DEEPHERMES_TOOL_MODE"); v != "" {
+		c.Safety.ToolMode = v
 	}
 }
 

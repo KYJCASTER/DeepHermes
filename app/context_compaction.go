@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ad201/deephermes/app/events"
 	"github.com/ad201/deephermes/pkg/api"
 	"github.com/ad201/deephermes/pkg/deepseek"
 )
@@ -18,6 +19,13 @@ const (
 func (a *App) prepareSessionContextLocked(sess *Session) []api.Message {
 	history := sessionAPIHistory(sess)
 	compacted, summary := compactSessionHistory(history, sess.ContextSummary)
+	if len(compacted) < len(history) && a.ctx != nil {
+		emit(a.ctx, sess.ID, events.EventContextCompacted, events.ContextCompactedPayload{
+			MessagesBefore: len(history),
+			MessagesAfter:  len(compacted),
+			SummaryTokens:  approxContextTokens(summary),
+		})
+	}
 	sess.AgentMessages = append([]api.Message(nil), compacted...)
 	sess.ContextSummary = summary
 	return compacted

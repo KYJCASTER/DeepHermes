@@ -1,13 +1,24 @@
-import { AlertTriangle, CheckCircle, ClipboardList, Download, FileText, HardDrive, Key, Link, Minimize2, Moon, SlidersHorizontal, Sparkles, Sun, Upload, Wand2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle, ClipboardList, Download, FileText, HardDrive, Key, Link, Minimize2, Moon, ShieldCheck, SlidersHorizontal, Sparkles, Sun, TestTube2, Upload, Wand2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
+import type { ToolMode } from "../../stores/settingsStore";
 import { useI18n } from "../../stores/i18nStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { CHAT_MODE_PRESETS, chatModePreset, MODEL_OPTIONS, formatCny, formatTokenLimit, modelProfile, supportsThinking } from "../../lib/models";
 import { INITIAL_PROMPT_PRESETS } from "../../lib/promptPresets";
-import { ExportSettings, GetDiagnostics, ImportSettings } from "../../lib/wails";
+import { ExportSettings, GetDiagnostics, ImportCharacterCard, ImportSettings, ListOCRPresets, ListTools, TestAPIKey } from "../../lib/wails";
 
 const INITIAL_PROMPT_LIMIT = 60000;
+type SettingsTab = "api" | "model" | "prompts" | "ocr" | "desktop" | "safety";
+
+const SETTINGS_TABS: Array<{ id: SettingsTab; labelKey: string }> = [
+  { id: "api", labelKey: "settings.tabApi" },
+  { id: "model", labelKey: "settings.tabModel" },
+  { id: "prompts", labelKey: "settings.tabPrompts" },
+  { id: "ocr", labelKey: "settings.tabOcr" },
+  { id: "desktop", labelKey: "settings.tabDesktop" },
+  { id: "safety", labelKey: "settings.tabSafety" },
+];
 
 export default function SettingsDialog() {
   const settings = useSettingsStore();
@@ -15,21 +26,71 @@ export default function SettingsDialog() {
   const setTheme = useThemeStore((s) => s.setTheme);
   const { t, lang } = useI18n();
   const [apiKey, setApiKey] = useState("");
+  const [ocrApiKey, setOcrApiKey] = useState("");
+  const [ocrPresets, setOcrPresets] = useState<Array<{ id: string; name: string; baseUrl: string; model: string }>>([]);
+  const [tools, setTools] = useState<Array<{ name: string; description: string }>>([]);
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
+  const [proxyUrl, setProxyUrl] = useState(settings.apiProxyUrl);
+  const [ocrBaseUrl, setOcrBaseUrl] = useState(settings.ocrBaseUrl);
+  const [ocrModel, setOcrModel] = useState(settings.ocrModel);
+  const [ocrPrompt, setOcrPrompt] = useState(settings.ocrPrompt);
+  const [bashBlocklistText, setBashBlocklistText] = useState(settings.bashBlocklist.join("\n"));
   const [initialPrompt, setInitialPrompt] = useState(settings.initialPrompt);
   const [roleCard, setRoleCard] = useState(settings.roleCard);
   const [worldBook, setWorldBook] = useState(settings.worldBook);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("api");
+  const [apiTest, setApiTest] = useState<{ status: "idle" | "testing" | "ok" | "fail"; message: string; latencyMs?: number }>({
+    status: "idle",
+    message: "",
+  });
   const [diagnostics, setDiagnostics] = useState<any>(null);
   const currentProfile = modelProfile(settings.model);
+  const tabClass = (tab: SettingsTab, className = "") => `${activeTab === tab ? "" : "hidden"} ${className}`.trim();
 
   useEffect(() => {
     GetDiagnostics().then(setDiagnostics).catch((e) => console.error("Failed to load diagnostics:", e));
+    ListOCRPresets().then((p) => setOcrPresets(p || [])).catch(() => setOcrPresets([]));
+    ListTools().then((items) => setTools(items || [])).catch(() => setTools([]));
   }, []);
+
+  useEffect(() => {
+    setBaseUrl(settings.baseUrl);
+    setProxyUrl(settings.apiProxyUrl);
+    setOcrBaseUrl(settings.ocrBaseUrl);
+    setOcrModel(settings.ocrModel);
+    setOcrPrompt(settings.ocrPrompt);
+    setBashBlocklistText(settings.bashBlocklist.join("\n"));
+    setInitialPrompt(settings.initialPrompt);
+    setRoleCard(settings.roleCard);
+    setWorldBook(settings.worldBook);
+  }, [
+    settings.baseUrl,
+    settings.apiProxyUrl,
+    settings.ocrBaseUrl,
+    settings.ocrModel,
+    settings.ocrPrompt,
+    settings.bashBlocklist,
+    settings.initialPrompt,
+    settings.roleCard,
+    settings.worldBook,
+  ]);
 
   const savePartial = (partial: Parameters<typeof settings.save>[0]) => {
     settings.save(partial).catch((e: any) => setError(e?.message || String(e)));
+  };
+
+  const parseBashBlocklist = () => bashBlocklistText.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+
+  const updateToolOverride = (toolName: string, mode: "" | ToolMode) => {
+    const next = { ...settings.toolOverrides };
+    if (mode) {
+      next[toolName] = mode;
+    } else {
+      delete next[toolName];
+    }
+    savePartial({ toolOverrides: next });
   };
 
   const applyMode = (mode: string) => {
@@ -51,6 +112,10 @@ export default function SettingsDialog() {
         await settings.setAPIKey(apiKey);
         setApiKey("");
       }
+      if (ocrApiKey.trim()) {
+        await settings.setOCRAPIKey(ocrApiKey);
+        setOcrApiKey("");
+      }
       await settings.save({
         model: settings.model,
         mode: settings.mode,
@@ -59,21 +124,55 @@ export default function SettingsDialog() {
         maxTokens: settings.maxTokens,
         temperature: settings.temperature,
         baseUrl,
+        apiTimeout: settings.apiTimeout,
+        apiMaxRetries: settings.apiMaxRetries,
+        apiProxyUrl: proxyUrl,
         thinkingEnabled: settings.thinkingEnabled,
         reasoningDisplay: settings.reasoningDisplay,
         autoCowork: settings.autoCowork,
+        toolMode: settings.toolMode,
+        toolOverrides: settings.toolOverrides,
+        bashBlocklist: parseBashBlocklist(),
         initialPrompt,
         roleCard,
         worldBook,
+        ocrEnabled: settings.ocrEnabled,
+        ocrProvider: settings.ocrProvider,
+        ocrBaseUrl,
+        ocrModel,
+        ocrPrompt,
+        ocrTimeout: settings.ocrTimeout,
       });
       GetDiagnostics().then(setDiagnostics).catch(() => undefined);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-      if (!apiKey.trim()) {
+      if (!apiKey.trim() && !ocrApiKey.trim()) {
         settings.togglePanel();
       }
     } catch (e: any) {
       setError(e?.message || String(e));
+    }
+  };
+
+  const handleTestAPIKey = async () => {
+    try {
+      setError("");
+      setApiTest({ status: "testing", message: t("settings.apiTesting") });
+      const result = await TestAPIKey({
+        apiKey,
+        baseUrl,
+        model: settings.model,
+        timeoutSeconds: settings.apiTimeout,
+        maxRetries: settings.apiMaxRetries,
+        proxyUrl,
+      });
+      setApiTest({
+        status: result.ok ? "ok" : "fail",
+        message: result.message,
+        latencyMs: result.latencyMs,
+      });
+    } catch (e: any) {
+      setApiTest({ status: "fail", message: e?.message || String(e) });
     }
   };
 
@@ -104,6 +203,27 @@ export default function SettingsDialog() {
     }
   };
 
+  const handleImportCharacterCard = async () => {
+    try {
+      setError("");
+      const result = await ImportCharacterCard();
+      if (!result) return;
+      if (result.roleCard) {
+        setRoleCard(result.roleCard);
+      }
+      if (result.worldBook) {
+        setWorldBook((current) => {
+          const prefix = current.trim();
+          return prefix ? `${prefix}\n\n${result.worldBook}` : result.worldBook;
+        });
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm" onClick={settings.togglePanel}>
       <div
@@ -125,8 +245,24 @@ export default function SettingsDialog() {
           </button>
         </div>
 
+        <div className="flex gap-1 overflow-x-auto border-b border-border px-4 py-2">
+          {SETTINGS_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`motion-lift shrink-0 rounded px-3 py-1.5 text-xs transition ${
+                activeTab === tab.id
+                  ? "bg-accent text-bg"
+                  : "text-dim hover:bg-panel hover:text-text"
+              }`}
+            >
+              {t(tab.labelKey)}
+            </button>
+          ))}
+        </div>
+
         <div className="space-y-5 p-5">
-          <div>
+          <div className={tabClass("api")}>
             <label className="mb-2 flex items-center gap-2 text-sm text-text">
               <Key size={14} />
               {t("settings.apiKey")}
@@ -136,16 +272,27 @@ export default function SettingsDialog() {
                 </span>
               )}
             </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => {
-                setApiKey(e.target.value);
-                setError("");
-              }}
-              placeholder={settings.apiKeyStatus === "configured" ? "************" : "sk-..."}
-              className="w-full rounded border border-border bg-bg/80 px-3 py-2 text-sm text-text outline-none transition placeholder:text-dim focus:border-accent focus:ring-2 focus:ring-accent/15"
-            />
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  setError("");
+                  setApiTest({ status: "idle", message: "" });
+                }}
+                placeholder={settings.apiKeyStatus === "configured" ? "************" : "sk-..."}
+                className="min-w-0 flex-1 rounded border border-border bg-bg/80 px-3 py-2 text-sm text-text outline-none transition placeholder:text-dim focus:border-accent focus:ring-2 focus:ring-accent/15"
+              />
+              <button
+                onClick={handleTestAPIKey}
+                disabled={apiTest.status === "testing" || (!apiKey.trim() && settings.apiKeyStatus !== "configured")}
+                className="motion-lift inline-flex items-center justify-center gap-2 rounded border border-border bg-surface px-3 py-2 text-sm text-text transition hover:border-dim disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <TestTube2 size={14} />
+                {apiTest.status === "testing" ? t("settings.apiTesting") : t("settings.apiTest")}
+              </button>
+            </div>
             <p className="mt-1 text-xs text-dim">
               {saved
                 ? t("settings.savedToConfig")
@@ -153,9 +300,17 @@ export default function SettingsDialog() {
                   ? t("settings.keyStored")
                   : t("settings.enterKey")}
             </p>
+            {apiTest.message && (
+              <p className={`mt-1 text-xs ${apiTest.status === "ok" ? "text-green" : apiTest.status === "fail" ? "text-red" : "text-dim"}`}>
+                {apiTest.status === "ok" ? t("settings.apiTestOk") : apiTest.status === "fail" ? t("settings.apiTestFail") : ""}
+                {apiTest.status !== "testing" && ": "}
+                {apiTest.message}
+                {apiTest.latencyMs ? ` (${apiTest.latencyMs}ms)` : ""}
+              </p>
+            )}
           </div>
 
-          <div>
+          <div className={tabClass("desktop")}>
             <label className="mb-2 block text-sm text-text">{t("settings.appearance")}</label>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
               {[
@@ -179,7 +334,7 @@ export default function SettingsDialog() {
             </div>
           </div>
 
-          <div className="rounded border border-border bg-bg/80 p-3">
+          <div className={tabClass("desktop", "rounded border border-border bg-bg/80 p-3")}>
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <label className="flex items-center gap-2 text-sm font-medium text-text">
@@ -260,7 +415,182 @@ export default function SettingsDialog() {
             )}
           </div>
 
-          <div>
+          <div className={tabClass("safety", "rounded border border-border bg-bg/80 p-3")}>
+            <div className="mb-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-text">
+                <ShieldCheck size={14} />
+                {t("settings.safety")}
+              </label>
+              <p className="mt-1 text-xs leading-5 text-dim">{t("settings.safetyDesc")}</p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {[
+                { id: "read_only", label: t("settings.toolReadOnly"), desc: t("settings.toolReadOnlyDesc") },
+                { id: "confirm", label: t("settings.toolConfirm"), desc: t("settings.toolConfirmDesc") },
+                { id: "auto", label: t("settings.toolAuto"), desc: t("settings.toolAutoDesc") },
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => savePartial({ toolMode: option.id as any })}
+                  className={`motion-lift rounded border p-3 text-left transition ${
+                    settings.toolMode === option.id
+                      ? "border-accent bg-accent/10 text-text"
+                      : "border-border bg-surface text-dim hover:border-dim hover:text-text"
+                  }`}
+                >
+                  <span className="block text-xs font-semibold">{option.label}</span>
+                  <span className="mt-1 block text-[11px] leading-4 text-dim">{option.desc}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 border-t border-border pt-3">
+              <div className="mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-dim">{t("settings.toolOverrides")}</span>
+                <p className="mt-1 text-xs leading-5 text-dim">{t("settings.toolOverridesDesc")}</p>
+              </div>
+              <div className="space-y-2">
+                {tools.length === 0 && (
+                  <div className="rounded border border-border bg-surface px-3 py-2 text-xs text-dim">{t("settings.toolOverridesEmpty")}</div>
+                )}
+                {tools.map((tool) => (
+                  <div key={tool.name} className="grid grid-cols-1 gap-2 rounded border border-border bg-surface px-3 py-2 sm:grid-cols-[1fr_11rem] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs font-semibold text-text">{tool.name}</div>
+                      <div className="mt-0.5 truncate text-[11px] text-dim">{tool.description}</div>
+                    </div>
+                    <select
+                      value={settings.toolOverrides[tool.name] || ""}
+                      onChange={(e) => updateToolOverride(tool.name, e.target.value as "" | ToolMode)}
+                      className="w-full rounded border border-border bg-bg/80 px-2 py-1.5 text-xs text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15"
+                    >
+                      <option value="">{t("settings.toolOverrideInherit")}</option>
+                      <option value="read_only">{t("settings.toolReadOnly")}</option>
+                      <option value="confirm">{t("settings.toolConfirm")}</option>
+                      <option value="auto">{t("settings.toolAuto")}</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 border-t border-border pt-3">
+              <label className="text-xs font-semibold uppercase tracking-wide text-dim">{t("settings.bashBlocklist")}</label>
+              <p className="mt-1 text-xs leading-5 text-dim">{t("settings.bashBlocklistDesc")}</p>
+              <textarea
+                value={bashBlocklistText}
+                onChange={(e) => {
+                  setBashBlocklistText(e.target.value);
+                  setError("");
+                }}
+                onBlur={() => savePartial({ bashBlocklist: parseBashBlocklist() })}
+                placeholder={"rm -rf /\nformat"}
+                className="mt-2 min-h-20 w-full resize-y rounded border border-border bg-bg/80 px-3 py-2 font-mono text-xs leading-5 text-text outline-none transition placeholder:text-dim focus:border-accent focus:ring-2 focus:ring-accent/15"
+              />
+            </div>
+          </div>
+
+          <div className={tabClass("ocr", "rounded border border-border bg-bg/80 p-3")}>
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-text">
+                  <FileText size={14} />
+                  {t("settings.ocr")}
+                  {settings.ocrKeyStatus === "configured" && (
+                    <span className="flex items-center gap-1 text-xs text-green">
+                      <CheckCircle size={12} /> {t("settings.configured")}
+                    </span>
+                  )}
+                </label>
+                <p className="mt-1 text-xs leading-5 text-dim">{t("settings.ocrDesc")}</p>
+              </div>
+              <button
+                onClick={() => savePartial({ ocrEnabled: !settings.ocrEnabled })}
+                className={`relative mt-0.5 h-5 w-10 shrink-0 rounded-full transition ${settings.ocrEnabled ? "bg-accent" : "bg-border"}`}
+              >
+                <div className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${settings.ocrEnabled ? "left-5" : "left-0.5"}`} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div>
+                <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-text">
+                  <Key size={13} />
+                  {t("settings.ocrApiKey")}
+                </label>
+                <input
+                  type="password"
+                  value={ocrApiKey}
+                  onChange={(e) => {
+                    setOcrApiKey(e.target.value);
+                    setError("");
+                  }}
+                  placeholder={settings.ocrKeyStatus === "configured" ? "************" : "sk-..."}
+                  className="w-full rounded border border-border bg-bg/80 px-3 py-2 text-sm text-text outline-none transition placeholder:text-dim focus:border-accent focus:ring-2 focus:ring-accent/15"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-text">{t("settings.ocrProvider")}</label>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const preset = ocrPresets.find((p) => p.id === e.target.value);
+                    if (preset) {
+                      setOcrBaseUrl(preset.baseUrl);
+                      setOcrModel(preset.model);
+                      setError("");
+                    }
+                  }}
+                  className="w-full rounded border border-border bg-bg/80 px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15"
+                >
+                  <option value="">{t("settings.ocrSelectPreset")}</option>
+                  {ocrPresets.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-text">
+                  <Link size={13} />
+                  {t("settings.ocrBaseUrl")}
+                </label>
+                <input
+                  value={ocrBaseUrl}
+                  onChange={(e) => {
+                    setOcrBaseUrl(e.target.value);
+                    setError("");
+                  }}
+                  placeholder="https://api.example.com/v1"
+                  className="w-full rounded border border-border bg-bg/80 px-3 py-2 text-sm text-text outline-none transition placeholder:text-dim focus:border-accent focus:ring-2 focus:ring-accent/15"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-text">{t("settings.ocrModel")}</label>
+                <input
+                  value={ocrModel}
+                  onChange={(e) => {
+                    setOcrModel(e.target.value);
+                    setError("");
+                  }}
+                  placeholder="vision-model-name"
+                  className="w-full rounded border border-border bg-bg/80 px-3 py-2 text-sm text-text outline-none transition placeholder:text-dim focus:border-accent focus:ring-2 focus:ring-accent/15"
+                />
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className="mb-2 block text-xs font-semibold text-text">{t("settings.ocrPrompt")}</label>
+              <textarea
+                value={ocrPrompt}
+                onChange={(e) => {
+                  setOcrPrompt(e.target.value);
+                  setError("");
+                }}
+                className="min-h-20 w-full resize-y rounded border border-border bg-bg/80 px-3 py-2 text-xs leading-5 text-text outline-none transition placeholder:text-dim focus:border-accent focus:ring-2 focus:ring-accent/15"
+              />
+            </div>
+          </div>
+
+          <div className={tabClass("model")}>
             <label className="mb-2 block text-sm text-text">{t("mode.title")}</label>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {CHAT_MODE_PRESETS.map((preset) => (
@@ -283,7 +613,7 @@ export default function SettingsDialog() {
             </div>
           </div>
 
-          <div>
+          <div className={tabClass("model")}>
             <label className="mb-2 block text-sm text-text">{t("settings.model")}</label>
             <div className="grid grid-cols-2 gap-2">
               {MODEL_OPTIONS.map((option) => (
@@ -325,7 +655,7 @@ export default function SettingsDialog() {
             </div>
           </div>
 
-          <div className="rounded border border-border bg-bg/80 p-3">
+          <div className={tabClass("model", "rounded border border-border bg-bg/80 p-3")}>
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <span className="text-sm font-medium text-text">{t("settings.deepseekProfile")}</span>
@@ -365,7 +695,7 @@ export default function SettingsDialog() {
             </div>
           </div>
 
-          <div className="rounded border border-border bg-bg/80 p-3">
+          <div className={tabClass("prompts", "rounded border border-border bg-bg/80 p-3")}>
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <label className="flex items-center gap-2 text-sm font-medium text-text">
@@ -374,9 +704,18 @@ export default function SettingsDialog() {
                 </label>
                 <p className="mt-1 text-xs leading-5 text-dim">{t("settings.initialPromptDesc")}</p>
               </div>
-              <span className="shrink-0 text-xs text-dim">
-                {initialPrompt.length}/{INITIAL_PROMPT_LIMIT}
-              </span>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <span className="text-xs text-dim">
+                  {initialPrompt.length}/{INITIAL_PROMPT_LIMIT}
+                </span>
+                <button
+                  onClick={handleImportCharacterCard}
+                  className="motion-lift inline-flex items-center gap-1.5 rounded border border-border bg-surface px-2.5 py-1.5 text-xs text-text transition hover:border-dim"
+                >
+                  <Upload size={12} />
+                  {t("settings.importCharacterCard")}
+                </button>
+              </div>
             </div>
 
             <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -436,22 +775,69 @@ export default function SettingsDialog() {
             </div>
           </div>
 
-          <div>
-            <label className="mb-2 flex items-center gap-2 text-sm text-text">
+          <div className={tabClass("api", "rounded border border-border bg-bg/80 p-3")}>
+            <label className="mb-3 flex items-center gap-2 text-sm font-medium text-text">
               <Link size={14} />
-              Base URL
+              {t("settings.apiNetwork")}
             </label>
-            <input
-              value={baseUrl}
-              onChange={(e) => {
-                setBaseUrl(e.target.value);
-                setError("");
-              }}
-              className="w-full rounded border border-border bg-bg/80 px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15"
-            />
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-text">Base URL</label>
+                <input
+                  value={baseUrl}
+                  onChange={(e) => {
+                    setBaseUrl(e.target.value);
+                    setError("");
+                    setApiTest({ status: "idle", message: "" });
+                  }}
+                  className="w-full rounded border border-border bg-bg/80 px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-text">{t("settings.proxyUrl")}</label>
+                <input
+                  value={proxyUrl}
+                  onChange={(e) => {
+                    setProxyUrl(e.target.value);
+                    setError("");
+                    setApiTest({ status: "idle", message: "" });
+                  }}
+                  placeholder="http://127.0.0.1:7890"
+                  className="w-full rounded border border-border bg-bg/80 px-3 py-2 text-sm text-text outline-none transition placeholder:text-dim focus:border-accent focus:ring-2 focus:ring-accent/15"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-text">
+                  {t("settings.apiTimeout")}: {settings.apiTimeout}s
+                </label>
+                <input
+                  type="range"
+                  min="10"
+                  max="300"
+                  step="5"
+                  value={settings.apiTimeout}
+                  onChange={(e) => savePartial({ apiTimeout: parseInt(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-text">
+                  {t("settings.apiRetries")}: {settings.apiMaxRetries}
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="10"
+                  step="1"
+                  value={settings.apiMaxRetries}
+                  onChange={(e) => savePartial({ apiMaxRetries: parseInt(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+            </div>
           </div>
 
-          <div>
+          <div className={tabClass("model")}>
             <label className="mb-2 block text-sm text-text">
               {t("settings.maxTokens")}: {formatTokenLimit(settings.maxTokens)}
             </label>
@@ -470,7 +856,7 @@ export default function SettingsDialog() {
             </div>
           </div>
 
-          <div>
+          <div className={tabClass("model")}>
             <label className="mb-2 block text-sm text-text">
               {t("settings.temperature")}: {settings.temperature.toFixed(1)}
             </label>
@@ -489,7 +875,7 @@ export default function SettingsDialog() {
             </div>
           </div>
 
-          {supportsThinking(settings.model) && (
+          {activeTab === "model" && supportsThinking(settings.model) && (
             <div className="space-y-3 rounded border border-border bg-bg/80 p-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -530,7 +916,7 @@ export default function SettingsDialog() {
             </div>
           )}
 
-          <div className="flex items-center justify-between">
+          <div className={tabClass("model", "flex items-center justify-between")}>
             <div>
               <span className="text-sm text-text">{t("settings.autoCowork")}</span>
               <p className="text-xs text-dim">{t("settings.autoCoworkDesc")}</p>

@@ -74,6 +74,9 @@ func TestRunStreamDetailedPassesReasoningBackWithToolCalls(t *testing.T) {
 	if result.Content != "done" {
 		t.Fatalf("unexpected result content %q", result.Content)
 	}
+	if result.FinishReason != "stop" {
+		t.Fatalf("expected final finish reason stop, got %q", result.FinishReason)
+	}
 	if requestCount != 2 {
 		t.Fatalf("expected two API requests, got %d", requestCount)
 	}

@@ -1,9 +1,10 @@
-import { Bot, Languages, Maximize, Minus, Moon, PanelRight, Plus, Settings, Sparkles, Square, Sun, X } from "lucide-react";
+import { Bot, Languages, Maximize, Minus, Moon, PanelRight, Plus, Settings, Sparkles, Square, Sun, TerminalSquare, X } from "lucide-react";
 import { useState } from "react";
 import { useCoworkStore } from "../../stores/coworkStore";
 import { LANG_LABELS, useI18n } from "../../stores/i18nStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useToolActivityStore } from "../../stores/toolActivityStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { HideMainWindow, Quit, WindowMaximise, WindowMinimise, WindowUnmaximise } from "../../lib/wails";
 
@@ -14,6 +15,8 @@ export default function TitleBar() {
   const toggleSettings = useSettingsStore((s) => s.togglePanel);
   const minimizeToTray = useSettingsStore((s) => s.minimizeToTray);
   const toggleCowork = useCoworkStore((s) => s.togglePanel);
+  const toggleTools = useToolActivityStore((s) => s.togglePanel);
+  const toolItems = useToolActivityStore((s) => s.items);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const { t, lang, toggleLang } = useI18n();
@@ -92,6 +95,12 @@ export default function TitleBar() {
         </button>
         <button onClick={toggleCowork} className="icon-button h-8 w-8" title={t("titlebar.cowork")}>
           <PanelRight size={15} />
+        </button>
+        <button onClick={toggleTools} className="icon-button relative h-8 w-8" title={t("titlebar.tools")}>
+          <TerminalSquare size={15} />
+          {toolItems.some((item) => item.status === "running") && (
+            <span className="agent-running absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-accent" />
+          )}
         </button>
         <button onClick={toggleSettings} className="icon-button h-8 w-8" title={t("titlebar.settings")}>
           <Settings size={15} />

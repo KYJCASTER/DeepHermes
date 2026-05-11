@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: |
+          npx tsc
+          npx vite build
+        working-directory: frontend
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          $Commit = git rev-parse --short HEAD
+          $BuildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $Version = "${{ steps.version.outputs.version }}"
+          $LdFlags = "-w -s -H windowsgui -X github.com/ad201/deephermes/app.Version=$Version -X github.com/ad201/deephermes/app.BuildCommit=$Commit -X github.com/ad201/deephermes/app.BuildDate=$BuildDate"
+          go build -buildvcs=false -tags "desktop,production" -ldflags $LdFlags -o build/bin/DeepHermes.exe .
+
+      - name: Create release archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build/bin/DeepHermes.exe -DestinationPath "build/bin/DeepHermes-${{ steps.version.outputs.version }}-windows-amd64.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            build/bin/DeepHermes-${{ steps.version.outputs.version }}-windows-amd64.zip
+            build/bin/DeepHermes.exe

@@ -1,13 +1,13 @@
 export namespace api {
-	
+
 	export class FunctionCall {
 	    name: string;
 	    arguments: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FunctionCall(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -19,11 +19,11 @@ export namespace api {
 	    id: string;
 	    type: string;
 	    function: FunctionCall;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ToolCall(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.index = source["index"];
@@ -31,7 +31,7 @@ export namespace api {
 	        this.type = source["type"];
 	        this.function = this.convertValues(source["function"], FunctionCall);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -57,11 +57,11 @@ export namespace api {
 	    tool_calls?: ToolCall[];
 	    tool_call_id?: string;
 	    name?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Message(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.role = source["role"];
@@ -71,7 +71,7 @@ export namespace api {
 	        this.tool_call_id = source["tool_call_id"];
 	        this.name = source["name"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -94,16 +94,62 @@ export namespace api {
 }
 
 export namespace app {
-	
+
+	export class OCRProviderPreset {
+	    id: string;
+	    name: string;
+	    baseUrl: string;
+	    model: string;
+
+	    static createFrom(source: any = {}) {
+	        return new OCRProviderPreset(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.baseUrl = source["baseUrl"];
+	        this.model = source["model"];
+	    }
+	}
+	export class ContextSummaryResult {
+	    summary: string;
+	    tokens: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ContextSummaryResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.summary = source["summary"];
+	        this.tokens = source["tokens"];
+	    }
+	}
+	export class UpdateContextSummaryRequest {
+	    sessionId: string;
+	    summary: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UpdateContextSummaryRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.summary = source["summary"];
+	    }
+	}
 	export class DiagnosticLog {
 	    time: string;
 	    level: string;
 	    message: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new DiagnosticLog(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.time = source["time"];
@@ -130,11 +176,11 @@ export namespace app {
 	    sessionCount: number;
 	    memoryDir: string;
 	    recentLogs: DiagnosticLog[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new AppDiagnostics(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.version = source["version"];
@@ -156,7 +202,7 @@ export namespace app {
 	        this.memoryDir = source["memoryDir"];
 	        this.recentLogs = this.convertValues(source["recentLogs"], DiagnosticLog);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -183,17 +229,29 @@ export namespace app {
 	    maxTokens: number;
 	    temperature: number;
 	    baseUrl: string;
+	    apiTimeout: number;
+	    apiMaxRetries: number;
+	    apiProxyUrl: string;
 	    thinkingEnabled: boolean;
 	    reasoningDisplay: string;
 	    autoCowork: boolean;
+	    toolMode: string;
+	    toolOverrides: {[key: string]: string};
+	    bashBlocklist: string[];
 	    initialPrompt: string;
 	    roleCard: string;
 	    worldBook: string;
-	
+	    ocrEnabled: boolean;
+	    ocrProvider: string;
+	    ocrBaseUrl: string;
+	    ocrModel: string;
+	    ocrPrompt: string;
+	    ocrTimeout: number;
+
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.model = source["model"];
@@ -203,23 +261,91 @@ export namespace app {
 	        this.maxTokens = source["maxTokens"];
 	        this.temperature = source["temperature"];
 	        this.baseUrl = source["baseUrl"];
+	        this.apiTimeout = source["apiTimeout"];
+	        this.apiMaxRetries = source["apiMaxRetries"];
+	        this.apiProxyUrl = source["apiProxyUrl"];
 	        this.thinkingEnabled = source["thinkingEnabled"];
 	        this.reasoningDisplay = source["reasoningDisplay"];
 	        this.autoCowork = source["autoCowork"];
+	        this.toolMode = source["toolMode"];
+	        this.toolOverrides = source["toolOverrides"];
+	        this.bashBlocklist = source["bashBlocklist"];
 	        this.initialPrompt = source["initialPrompt"];
 	        this.roleCard = source["roleCard"];
 	        this.worldBook = source["worldBook"];
+	        this.ocrEnabled = source["ocrEnabled"];
+	        this.ocrProvider = source["ocrProvider"];
+	        this.ocrBaseUrl = source["ocrBaseUrl"];
+	        this.ocrModel = source["ocrModel"];
+	        this.ocrPrompt = source["ocrPrompt"];
+	        this.ocrTimeout = source["ocrTimeout"];
+	    }
+	}
+	export class CharacterCardImportResult {
+	    name: string;
+	    roleCard: string;
+	    worldBook: string;
+	    source: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CharacterCardImportResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.roleCard = source["roleCard"];
+	        this.worldBook = source["worldBook"];
+	        this.source = source["source"];
+	    }
+	}
+	export class APIKeyTestRequest {
+	    apiKey: string;
+	    baseUrl: string;
+	    model: string;
+	    timeoutSeconds: number;
+	    maxRetries: number;
+	    proxyUrl: string;
+
+	    static createFrom(source: any = {}) {
+	        return new APIKeyTestRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.apiKey = source["apiKey"];
+	        this.baseUrl = source["baseUrl"];
+	        this.model = source["model"];
+	        this.timeoutSeconds = source["timeoutSeconds"];
+	        this.maxRetries = source["maxRetries"];
+	        this.proxyUrl = source["proxyUrl"];
+	    }
+	}
+	export class APIKeyTestResult {
+	    ok: boolean;
+	    message: string;
+	    latencyMs: number;
+
+	    static createFrom(source: any = {}) {
+	        return new APIKeyTestResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.message = source["message"];
+	        this.latencyMs = source["latencyMs"];
 	    }
 	}
 	export class BranchSessionRequest {
 	    sessionId: string;
 	    upToIndex: number;
 	    nameSuffix: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new BranchSessionRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sessionId = source["sessionId"];
@@ -232,11 +358,11 @@ export namespace app {
 	    name: string;
 	    model: string;
 	    createdAt: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new CreateSessionResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -245,18 +371,18 @@ export namespace app {
 	        this.createdAt = source["createdAt"];
 	    }
 	}
-	
+
 	export class FileEntry {
 	    name: string;
 	    path: string;
 	    isDir: boolean;
 	    size: number;
 	    children?: FileEntry[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FileEntry(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -265,7 +391,7 @@ export namespace app {
 	        this.size = source["size"];
 	        this.children = this.convertValues(source["children"], FileEntry);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -284,18 +410,108 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class FileSnippet {
+	    name: string;
+	    path: string;
+	    size: number;
+	    content: string;
+	    truncated: boolean;
+	    binary: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new FileSnippet(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.size = source["size"];
+	        this.content = source["content"];
+	        this.truncated = source["truncated"];
+	        this.binary = source["binary"];
+	    }
+	}
+	export class FileSearchResult {
+	    name: string;
+	    path: string;
+	    relativePath: string;
+	    size: number;
+
+	    static createFrom(source: any = {}) {
+	        return new FileSearchResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.relativePath = source["relativePath"];
+	        this.size = source["size"];
+	    }
+	}
+	export class ToolRollbackResult {
+	    restored: boolean;
+	    deleted: boolean;
+	    path: string;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolRollbackResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.restored = source["restored"];
+	        this.deleted = source["deleted"];
+	        this.path = source["path"];
+	        this.message = source["message"];
+	    }
+	}
 	export class MessageIndexRequest {
 	    sessionId: string;
 	    index: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new MessageIndexRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sessionId = source["sessionId"];
 	        this.index = source["index"];
+	    }
+	}
+	export class OCRImageRequest {
+	    fileName: string;
+	    mimeType: string;
+	    dataBase64: string;
+
+	    static createFrom(source: any = {}) {
+	        return new OCRImageRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fileName = source["fileName"];
+	        this.mimeType = source["mimeType"];
+	        this.dataBase64 = source["dataBase64"];
+	    }
+	}
+	export class OCRImageResult {
+	    text: string;
+	    provider: string;
+	    model: string;
+
+	    static createFrom(source: any = {}) {
+	        return new OCRImageResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.provider = source["provider"];
+	        this.model = source["model"];
 	    }
 	}
 	export class TokenUsage {
@@ -305,11 +521,11 @@ export namespace app {
 	    promptCacheHitTokens: number;
 	    promptCacheMissTokens: number;
 	    reasoningTokens: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new TokenUsage(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.promptTokens = source["promptTokens"];
@@ -328,11 +544,13 @@ export namespace app {
 	    firstTokenMs: number;
 	    durationMs: number;
 	    tokensPerSec: number;
-	
+	    finishReason?: string;
+	    truncated?: boolean;
+
 	    static createFrom(source: any = {}) {
 	        return new RunMetrics(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.usage = this.convertValues(source["usage"], TokenUsage);
@@ -342,8 +560,10 @@ export namespace app {
 	        this.firstTokenMs = source["firstTokenMs"];
 	        this.durationMs = source["durationMs"];
 	        this.tokensPerSec = source["tokensPerSec"];
+	        this.finishReason = source["finishReason"];
+	        this.truncated = source["truncated"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -365,11 +585,11 @@ export namespace app {
 	export class SendMessageRequest {
 	    sessionId: string;
 	    message: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SendMessageRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sessionId = source["sessionId"];
@@ -386,11 +606,11 @@ export namespace app {
 	    usage: TokenUsage;
 	    lastRun?: RunMetrics;
 	    contextSummaryTokens: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SessionInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -403,7 +623,7 @@ export namespace app {
 	        this.lastRun = this.convertValues(source["lastRun"], RunMetrics);
 	        this.contextSummaryTokens = source["contextSummaryTokens"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -427,11 +647,11 @@ export namespace app {
 	    name: string;
 	    agentType: string;
 	    task: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SpawnSubAgentRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.parentSessionId = source["parentSessionId"];
@@ -447,11 +667,11 @@ export namespace app {
 	    status: string;
 	    createdAt: string;
 	    result: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SubAgentStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -462,15 +682,15 @@ export namespace app {
 	        this.result = source["result"];
 	    }
 	}
-	
+
 	export class ToolInfo {
 	    name: string;
 	    description: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ToolInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -481,11 +701,11 @@ export namespace app {
 	    sessionId: string;
 	    index: number;
 	    content: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new UpdateMessageRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sessionId = source["sessionId"];
@@ -495,4 +715,3 @@ export namespace app {
 	}
 
 }
-
