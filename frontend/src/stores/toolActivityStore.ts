@@ -69,7 +69,7 @@ export const useToolActivityStore = create<ToolActivityStore>((set, get) => ({
       const update = {
         content: payload.content,
         error: payload.error,
-        risk: payload.risk || "unknown",
+        risk: payload.risk,
         status: payload.success === false ? "failed" as const : "done" as const,
         finishedAt: new Date().toISOString(),
         rollbackAvailable: payload.rollbackAvailable,
@@ -84,6 +84,7 @@ export const useToolActivityStore = create<ToolActivityStore>((set, get) => ({
               arguments: "{}",
               startedAt: new Date().toISOString(),
               ...update,
+              risk: payload.risk || "unknown",
             },
             ...state.items,
           ].slice(0, 80),
