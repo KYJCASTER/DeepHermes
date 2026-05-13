@@ -28,6 +28,7 @@ DeepHermes is a Windows desktop agent client optimized for DeepSeek models. It i
 - Tool safety modes: read-only, confirm before sensitive tools, or trusted auto-execute.
 - Confirmation prompts for destructive chat/session actions and model-initiated write, shell, or network tools.
 - Diff previews before approving model-initiated file writes or edits.
+- Workspace boundary checks for model tools and file browsing so local file access stays inside the current project directory.
 - Tool activity panel showing model-initiated file, command, and network tool calls with arguments, results, and one-click rollback for file writes/edits.
 - Per-tool safety overrides, Bash blocklist rules, and TSV audit-log export.
 - Session backup/restore, corrupt session quarantine, and Markdown/JSON session export.
@@ -178,6 +179,8 @@ Optional network and safety overrides:
 $env:DEEPHERMES_PROXY_URL = "http://127.0.0.1:7890"
 $env:DEEPHERMES_TOOL_MODE = "confirm" # read_only, confirm, or auto
 ```
+
+Model-initiated file tools, shell execution, workspace search, and the file browser are restricted to the app's current working directory. Launch DeepHermes from the project directory you want the agent to use as its workspace.
 
 You can override the model with:
 

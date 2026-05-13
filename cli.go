@@ -36,9 +36,16 @@ func runCLI(cfg *config.Config) {
 	reg.Register(&tools.Grep{})
 	reg.Register(&tools.WebFetch{})
 	reg.Register(&tools.WebSearch{})
+	workDir := agent.GetWorkDir()
+	tools.SetWorkingDir(workDir)
+	reg.SetPolicy(tools.Policy{
+		Mode:          string(tools.ToolModeAuto),
+		BashBlocklist: cfg.Safety.BashBlocklist,
+		AllowedDir:    workDir,
+	})
 
 	ag := agent.New(client, reg, agent.Config{
-		WorkDir:     agent.GetWorkDir(),
+		WorkDir:     workDir,
 		Model:       cfg.Model,
 		MaxTokens:   cfg.MaxTokens,
 		Temperature: cfg.Temperature,

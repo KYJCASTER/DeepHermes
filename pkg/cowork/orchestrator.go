@@ -121,6 +121,7 @@ type DispatchResult struct {
 // Dispatch runs a subtask using a sub-agent.
 func (o *Orchestrator) Dispatch(ctx context.Context, plan *TaskPlan, subtask Subtask, cfg agent.Config) DispatchResult {
 	reg := buildRegistry(subtask.AgentType)
+	configureToolPolicy(reg, cfg.WorkDir)
 	ag := agent.New(o.client, reg, cfg)
 
 	prompt := buildPrompt(subtask.AgentType, subtask.Description)
@@ -195,6 +196,17 @@ func buildRegistry(agentType string) *tools.Registry {
 		reg.Register(&tools.WebSearch{})
 	}
 	return reg
+}
+
+func configureToolPolicy(reg *tools.Registry, workDir string) {
+	if reg == nil || strings.TrimSpace(workDir) == "" {
+		return
+	}
+	tools.SetWorkingDir(workDir)
+	reg.SetPolicy(tools.Policy{
+		Mode:       string(tools.ToolModeAuto),
+		AllowedDir: workDir,
+	})
 }
 
 func buildPrompt(agentType, task string) string {

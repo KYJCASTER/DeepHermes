@@ -14,8 +14,8 @@ import (
 type AgentType string
 
 const (
-	Explore       AgentType = "explore"
-	Plan          AgentType = "plan"
+	Explore        AgentType = "explore"
+	Plan           AgentType = "plan"
 	GeneralPurpose AgentType = "general-purpose"
 )
 
@@ -37,6 +37,7 @@ type Result struct {
 
 func Spawn(agentType AgentType, client *api.Client, cfg agent.Config, prompt string) *SubAgent {
 	reg := buildRegistry(agentType)
+	configureToolPolicy(reg, cfg.WorkDir)
 	ag := agent.New(client, reg, cfg)
 
 	sa := &SubAgent{
@@ -96,6 +97,17 @@ func buildRegistry(agentType AgentType) *tools.Registry {
 		reg.Register(&tools.WebSearch{})
 	}
 	return reg
+}
+
+func configureToolPolicy(reg *tools.Registry, workDir string) {
+	if reg == nil || strings.TrimSpace(workDir) == "" {
+		return
+	}
+	tools.SetWorkingDir(workDir)
+	reg.SetPolicy(tools.Policy{
+		Mode:       string(tools.ToolModeAuto),
+		AllowedDir: workDir,
+	})
 }
 
 func BuildSubAgentPrompt(agentType AgentType, task string) string {

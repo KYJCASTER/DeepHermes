@@ -2,6 +2,7 @@ import { CheckCircle, Clock3, Download, Network, RotateCcw, ShieldAlert, Termina
 import { useI18n } from "../../stores/i18nStore";
 import { ToolActivity, useToolActivityStore } from "../../stores/toolActivityStore";
 import { RollbackToolChange } from "../../lib/wails";
+import { friendlyError } from "../../lib/errors";
 
 function formatArgs(value: string) {
   try {
@@ -126,7 +127,7 @@ export default function ToolActivityPanel() {
 
               {(item.error || item.content) && (
                 <pre className={`system-pre mt-2 max-h-32 overflow-auto rounded bg-bg/60 px-2 py-2 text-[11px] leading-5 ${item.error ? "text-red" : "text-dim"}`}>
-                  {item.error || item.content}
+                  {item.error ? friendlyError(item.error, t("tools.workspaceBlocked")) : item.content}
                 </pre>
               )}
 
