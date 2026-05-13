@@ -4,6 +4,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { GetWorkspaceDir, ListDirectory, ReadFileContent } from "../../lib/wails";
 import { useI18n } from "../../stores/i18nStore";
 import { useLayoutStore } from "../../stores/layoutStore";
+import { friendlyError, isWorkspaceBoundaryError } from "../../lib/errors";
 
 interface FileEntry {
   name: string;
@@ -93,6 +94,9 @@ export default function FileBrowser() {
       const entries = await ListDirectory(dir);
       setFiles(entries);
     } catch (e) {
+      if (isWorkspaceBoundaryError(e)) {
+        setPreviewNotice(t("files.workspaceBlocked"));
+      }
       console.error("Failed to list directory:", e);
     }
   };
@@ -107,6 +111,7 @@ export default function FileBrowser() {
         const children = await ListDirectory(dirPath);
         setFiles((prev) => prev.map((f) => (f.path === dirPath ? { ...f, children } : f)));
       } catch (e) {
+        setPreviewNotice(friendlyError(e, t("files.workspaceBlocked")));
         console.error("Failed to list directory:", e);
       }
     }
@@ -143,9 +148,9 @@ export default function FileBrowser() {
       }
       setPreviewContent(content);
       setPreviewNotice("");
-    } catch {
+    } catch (e) {
       setPreviewContent("");
-      setPreviewNotice(t("files.previewFailed"));
+      setPreviewNotice(friendlyError(e, t("files.workspaceBlocked")) || t("files.previewFailed"));
     }
   };
 

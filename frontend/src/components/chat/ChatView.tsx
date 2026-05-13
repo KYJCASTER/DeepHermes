@@ -37,6 +37,7 @@ import {
   supportsThinking,
 } from "../../lib/models";
 import { ClipboardSetText, ExportSession, GetContextSummary, OCRImage, OCRImageFile, OnFileDrop, OnFileDropOff, ReadFileSnippet, SearchWorkspaceFiles, UpdateContextSummary } from "../../lib/wails";
+import { friendlyError } from "../../lib/errors";
 import MessageBubble from "./MessageBubble";
 import ThinkingBanner from "./ThinkingBanner";
 
@@ -202,7 +203,7 @@ export default function ChatView() {
         .catch((err) => {
           if (!cancelled) {
             setFileSuggestions([]);
-            setComposerNotice(err?.message || String(err));
+            setComposerNotice(friendlyError(err, t("chat.workspaceBlocked")));
           }
         })
         .finally(() => {
@@ -354,7 +355,7 @@ export default function ChatView() {
           ].join("\n")
         );
       } catch (err: any) {
-        snippets.push(`[File failed: ${path}]\n${err?.message || String(err)}`);
+        snippets.push(`[File failed: ${path}]\n${friendlyError(err, t("chat.workspaceBlocked"))}`);
       }
     }
     appendDraft(snippets.join("\n\n"), baseDraft);
@@ -370,7 +371,7 @@ export default function ChatView() {
     setFileMention(null);
     setFileSuggestions([]);
     setInput(baseDraft);
-    attachFilePaths([file.path], baseDraft).catch((err) => setComposerNotice(err?.message || String(err)));
+    attachFilePaths([file.path], baseDraft).catch((err) => setComposerNotice(friendlyError(err, t("chat.workspaceBlocked"))));
   };
 
   const attachBrowserFiles = async (files: File[]) => {
@@ -410,7 +411,7 @@ export default function ChatView() {
 
   useEffect(() => {
     OnFileDrop((_, __, paths) => {
-      attachFilePaths(paths).catch((err) => setComposerNotice(err?.message || String(err)));
+      attachFilePaths(paths).catch((err) => setComposerNotice(friendlyError(err, t("chat.workspaceBlocked"))));
     }, true);
     return () => OnFileDropOff();
   }, [activeSessionId, inputHistory, lang, ocrEnabled]);
