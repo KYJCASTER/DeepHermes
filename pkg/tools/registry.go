@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -72,6 +74,7 @@ type Policy struct {
 	Mode          string
 	ToolOverrides map[string]string
 	BashBlocklist []string
+	AllowedDir    string
 	Approval      ApprovalFunc
 	OnCall        EventFunc
 	OnResult      EventFunc
@@ -80,6 +83,7 @@ type Policy struct {
 type contextKey string
 
 const sessionIDContextKey contextKey = "deephermes_session_id"
+const allowedDirContextKey contextKey = "deephermes_allowed_dir"
 
 func WithSessionID(ctx context.Context, sessionID string) context.Context {
 	if strings.TrimSpace(sessionID) == "" {
@@ -93,6 +97,22 @@ func SessionIDFromContext(ctx context.Context) string {
 		return ""
 	}
 	v, _ := ctx.Value(sessionIDContextKey).(string)
+	return v
+}
+
+func WithAllowedDir(ctx context.Context, allowedDir string) context.Context {
+	allowedDir = strings.TrimSpace(allowedDir)
+	if allowedDir == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, allowedDirContextKey, allowedDir)
+}
+
+func AllowedDirFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	v, _ := ctx.Value(allowedDirContextKey).(string)
 	return v
 }
 
@@ -135,6 +155,12 @@ func (r *Registry) SetPolicy(policy Policy) {
 	defer r.mu.Unlock()
 	policy.Mode = string(normalizeToolMode(policy.Mode))
 	r.policy = policy
+}
+
+func (r *Registry) AllowedDir() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.policy.AllowedDir
 }
 
 func (r *Registry) List() []Tool {
@@ -192,6 +218,15 @@ func (r *Registry) Execute(ctx context.Context, call api.ToolCall) (string, erro
 		Arguments: call.Function.Arguments,
 		Risk:      string(classifyToolRisk(call.Function.Name)),
 	}
+	if err := validateToolWorkspace(call.Function.Name, args, policy.AllowedDir); err != nil {
+		if policy.OnResult != nil {
+			resultEvent := event
+			resultEvent.Error = err.Error()
+			resultEvent.Success = false
+			policy.OnResult(ctx, resultEvent)
+		}
+		return "", err
+	}
 	if policy.OnCall != nil {
 		policy.OnCall(ctx, event)
 	}
@@ -204,6 +239,7 @@ func (r *Registry) Execute(ctx context.Context, call api.ToolCall) (string, erro
 		}
 		return "", err
 	}
+	ctx = WithAllowedDir(ctx, policy.AllowedDir)
 	output, err := t.Execute(ctx, args)
 	if policy.OnResult != nil {
 		resultEvent := event
@@ -272,6 +308,45 @@ func authorizeTool(ctx context.Context, call api.ToolCall, args map[string]any, 
 	default:
 		return nil
 	}
+}
+
+func validateToolWorkspace(name string, args map[string]any, allowedDir string) error {
+	if strings.TrimSpace(allowedDir) == "" {
+		return nil
+	}
+	var target string
+	switch name {
+	case "read_file", "write_file", "edit_file":
+		target, _ = args["file_path"].(string)
+	case "glob":
+		target, _ = args["path"].(string)
+		if strings.TrimSpace(target) == "" {
+			target = "."
+		}
+		pattern, _ := args["pattern"].(string)
+		pattern = strings.TrimSpace(pattern)
+		if pattern != "" {
+			if filepath.IsAbs(pattern) {
+				target = pattern
+			} else {
+				target = filepath.Join(target, pattern)
+			}
+		}
+	case "grep":
+		target, _ = args["path"].(string)
+		if strings.TrimSpace(target) == "" {
+			target = "."
+		}
+	default:
+		return nil
+	}
+	if strings.TrimSpace(target) == "" {
+		return nil
+	}
+	if err := ValidatePath(allowedDir, target); err != nil {
+		return fmt.Errorf("tool %s blocked: %w", name, err)
+	}
+	return nil
 }
 
 func toolCallID(call api.ToolCall) string {
@@ -410,6 +485,78 @@ func limitPreview(value string) string {
 		return value
 	}
 	return value[:maxPreviewBytes] + "\n... diff preview truncated ..."
+}
+
+func ValidatePath(allowedDir, target string) error {
+	allowedDir = strings.TrimSpace(allowedDir)
+	if allowedDir == "" {
+		return nil
+	}
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return nil
+	}
+	absAllowed, err := resolveBoundaryPath(allowedDir)
+	if err != nil {
+		return fmt.Errorf("cannot resolve workspace directory: %w", err)
+	}
+	absTarget, err := resolveBoundaryPath(target)
+	if err != nil {
+		return fmt.Errorf("cannot resolve target path: %w", err)
+	}
+	if pathWithin(absAllowed, absTarget) {
+		return nil
+	}
+	return fmt.Errorf("path %s is outside the allowed workspace %s", absTarget, absAllowed)
+}
+
+func resolveBoundaryPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	abs = filepath.Clean(abs)
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return filepath.Clean(resolved), nil
+	}
+
+	var missing []string
+	current := abs
+	for {
+		parent := filepath.Dir(current)
+		if parent == current {
+			return abs, nil
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+		if resolved, err := filepath.EvalSymlinks(current); err == nil {
+			resolved = filepath.Clean(resolved)
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+	}
+}
+
+func pathWithin(absAllowed, absTarget string) bool {
+	absAllowed = filepath.Clean(absAllowed)
+	absTarget = filepath.Clean(absTarget)
+	if samePath(absAllowed, absTarget) {
+		return true
+	}
+	prefix := absAllowed + string(filepath.Separator)
+	if runtime.GOOS == "windows" {
+		return strings.HasPrefix(strings.ToLower(absTarget), strings.ToLower(prefix))
+	}
+	return strings.HasPrefix(absTarget, prefix)
+}
+
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 type ToolResult struct {

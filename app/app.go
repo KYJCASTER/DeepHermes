@@ -287,10 +287,13 @@ func (a *App) configureRegistryPolicy(reg *tools.Registry) {
 	if reg == nil {
 		return
 	}
+	workDir := a.GetWorkspaceDir()
+	tools.SetWorkingDir(workDir)
 	reg.SetPolicy(tools.Policy{
 		Mode:          normalizeSafetyToolMode(a.cfg.Safety.ToolMode),
 		ToolOverrides: a.cfg.Safety.ToolOverrides,
 		BashBlocklist: a.cfg.Safety.BashBlocklist,
+		AllowedDir:    workDir,
 		Approval:      a.waitForToolApproval,
 		OnCall:        a.emitToolCall,
 		OnResult:      a.emitToolResult,
@@ -1257,6 +1260,13 @@ func (a *App) ListDirectory(dirPath string) ([]FileEntry, error) {
 	if dirPath == "" {
 		dirPath = "."
 	}
+	dirPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.validateWorkspacePath(dirPath); err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, err
@@ -1299,10 +1309,19 @@ func (a *App) SearchWorkspaceFiles(query string, limit int) ([]FileSearchResult,
 	if err != nil {
 		return nil, err
 	}
+	if err := a.validateWorkspacePath(root); err != nil {
+		return nil, err
+	}
 	needle := strings.ToLower(strings.TrimPrefix(query, "@"))
 	var results []FileSearchResult
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
+			return nil
+		}
+		if err := a.validateWorkspacePath(path); err != nil {
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		name := entry.Name()
@@ -1360,6 +1379,9 @@ func (a *App) SearchWorkspaceFiles(query string, limit int) ([]FileSearchResult,
 }
 
 func (a *App) ReadFileContent(path string) (string, error) {
+	if err := a.validateWorkspacePath(path); err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -1370,6 +1392,9 @@ func (a *App) ReadFileContent(path string) (string, error) {
 func (a *App) ReadFileSnippet(path string, maxBytes int) (*FileSnippet, error) {
 	if maxBytes <= 0 {
 		maxBytes = 96 * 1024
+	}
+	if err := a.validateWorkspacePath(path); err != nil {
+		return nil, err
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -1403,6 +1428,10 @@ func (a *App) ReadFileSnippet(path string, maxBytes int) (*FileSnippet, error) {
 func (a *App) GetWorkspaceDir() string {
 	wd, _ := os.Getwd()
 	return wd
+}
+
+func (a *App) validateWorkspacePath(path string) error {
+	return tools.ValidatePath(a.GetWorkspaceDir(), path)
 }
 
 func (a *App) OpenFileDialog() (string, error) {

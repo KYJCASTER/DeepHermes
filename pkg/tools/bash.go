@@ -137,6 +137,9 @@ func (t *Bash) Execute(ctx context.Context, args map[string]any) (string, error)
 	shellArgs := getShellArgs(shell, command)
 	cmd := exec.CommandContext(execCtx, shell, shellArgs...)
 	if workingDir != "" {
+		if err := ValidatePath(AllowedDirFromContext(ctx), workingDir); err != nil {
+			return "", err
+		}
 		cmd.Dir = workingDir
 	}
 

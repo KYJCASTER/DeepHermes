@@ -11,8 +11,10 @@ import (
 
 type Glob struct{}
 
-func (t *Glob) Name() string        { return "glob" }
-func (t *Glob) Description() string { return "Find files matching a glob pattern. Returns sorted file paths." }
+func (t *Glob) Name() string { return "glob" }
+func (t *Glob) Description() string {
+	return "Find files matching a glob pattern. Returns sorted file paths."
+}
 func (t *Glob) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -36,11 +38,25 @@ func (t *Glob) Execute(ctx context.Context, args map[string]any) (string, error)
 	if searchPath == "" {
 		searchPath = "."
 	}
+	allowedDir := AllowedDirFromContext(ctx)
+	globPattern := pattern
+	if filepath.IsAbs(globPattern) {
+		searchPath = filepath.Dir(globPattern)
+	} else {
+		if err := ValidatePath(allowedDir, searchPath); err != nil {
+			return "", err
+		}
+		globPattern = filepath.Join(searchPath, pattern)
+	}
+	if err := ValidatePath(allowedDir, globPattern); err != nil {
+		return "", err
+	}
 
-	matches, err := filepath.Glob(filepath.Join(searchPath, pattern))
+	matches, err := filepath.Glob(globPattern)
 	if err != nil {
 		return "", fmt.Errorf("glob error: %w", err)
 	}
+	matches = filterAllowedPaths(allowedDir, matches)
 
 	// Also support ** with Walk
 	if strings.Contains(pattern, "**") {
@@ -54,6 +70,12 @@ func (t *Glob) Execute(ctx context.Context, args map[string]any) (string, error)
 			if err != nil {
 				return nil
 			}
+			if err := ValidatePath(allowedDir, path); err != nil {
+				if info != nil && info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			rel, _ := filepath.Rel(searchPath, path)
 			if matched, _ := filepath.Match(prefix+"*"+suffix, rel); matched || strings.HasSuffix(rel, suffix) {
 				if !info.IsDir() || suffix == "" {
@@ -62,6 +84,7 @@ func (t *Glob) Execute(ctx context.Context, args map[string]any) (string, error)
 			}
 			return nil
 		})
+		matches = filterAllowedPaths(allowedDir, matches)
 	}
 
 	if len(matches) == 0 {
@@ -75,12 +98,27 @@ func (t *Glob) Execute(ctx context.Context, args map[string]any) (string, error)
 	return out.String(), nil
 }
 
+func filterAllowedPaths(allowedDir string, paths []string) []string {
+	if strings.TrimSpace(allowedDir) == "" || len(paths) == 0 {
+		return paths
+	}
+	filtered := paths[:0]
+	for _, path := range paths {
+		if ValidatePath(allowedDir, path) == nil {
+			filtered = append(filtered, path)
+		}
+	}
+	return filtered
+}
+
 // --- Grep ---
 
 type Grep struct{}
 
-func (t *Grep) Name() string        { return "grep" }
-func (t *Grep) Description() string { return "Search for a regex pattern in files. Returns matching file paths or matching lines with context." }
+func (t *Grep) Name() string { return "grep" }
+func (t *Grep) Description() string {
+	return "Search for a regex pattern in files. Returns matching file paths or matching lines with context."
+}
 func (t *Grep) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -121,6 +159,9 @@ func (t *Grep) Execute(ctx context.Context, args map[string]any) (string, error)
 	if searchPath == "" {
 		searchPath = "."
 	}
+	if err := ValidatePath(AllowedDirFromContext(ctx), searchPath); err != nil {
+		return "", err
+	}
 
 	re, err := regexp.Compile(pattern)
 	if err != nil {
@@ -130,6 +171,14 @@ func (t *Grep) Execute(ctx context.Context, args map[string]any) (string, error)
 	var results []grepMatch
 	filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
+			if err == nil && info != nil && info.IsDir() {
+				if err := ValidatePath(AllowedDirFromContext(ctx), path); err != nil {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if err := ValidatePath(AllowedDirFromContext(ctx), path); err != nil {
 			return nil
 		}
 		if globFilter != "" {

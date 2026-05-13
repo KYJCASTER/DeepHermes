@@ -45,9 +45,11 @@ func main() {
 	client := api.NewClient(cfg.API.BaseURL, cfg.Model, cfg.GetAPIKey(), cfg.API.MaxRetries)
 	reg := tools.NewRegistry()
 	registerTools(reg)
+	workDir := agent.GetWorkDir()
+	configureToolPolicy(reg, cfg, workDir)
 
 	ag := agent.New(client, reg, agent.Config{
-		WorkDir:     agent.GetWorkDir(),
+		WorkDir:     workDir,
 		Model:       cfg.Model,
 		MaxTokens:   cfg.MaxTokens,
 		Temperature: cfg.Temperature,
@@ -139,6 +141,18 @@ func registerTools(reg *tools.Registry) {
 	reg.Register(&tools.Grep{})
 	reg.Register(&tools.WebFetch{})
 	reg.Register(&tools.WebSearch{})
+}
+
+func configureToolPolicy(reg *tools.Registry, cfg *config.Config, workDir string) {
+	if reg == nil || cfg == nil {
+		return
+	}
+	tools.SetWorkingDir(workDir)
+	reg.SetPolicy(tools.Policy{
+		Mode:          string(tools.ToolModeAuto),
+		BashBlocklist: cfg.Safety.BashBlocklist,
+		AllowedDir:    workDir,
+	})
 }
 
 func handleCommand(input string, ag *agent.Agent, cfg *config.Config, memStore *memory.Store, planMgr *plan.Manager, client *api.Client) {

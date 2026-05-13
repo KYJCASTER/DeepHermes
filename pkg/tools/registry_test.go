@@ -178,6 +178,122 @@ func TestRegistryBashBlocklistBlocksCommand(t *testing.T) {
 	}
 }
 
+func TestRegistryAllowedDirBlocksReadOutsideWorkspace(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&ReadFile{})
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	path := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(path, []byte("secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	reg.SetPolicy(Policy{
+		Mode:       string(ToolModeAuto),
+		AllowedDir: workspace,
+	})
+
+	_, err := reg.Execute(context.Background(), api.ToolCall{
+		ID: "call-read-outside",
+		Function: api.FunctionCall{
+			Name:      "read_file",
+			Arguments: `{"file_path":"` + filepath.ToSlash(path) + `"}`,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected allowed dir to block read_file outside workspace")
+	}
+	if !strings.Contains(err.Error(), "outside the allowed workspace") {
+		t.Fatalf("expected workspace boundary error, got %v", err)
+	}
+}
+
+func TestRegistryAllowedDirBlocksWriteBeforeApproval(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&WriteFile{})
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	path := filepath.Join(outside, "blocked.txt")
+	approvalCalled := false
+	reg.SetPolicy(Policy{
+		Mode:       string(ToolModeConfirm),
+		AllowedDir: workspace,
+		Approval: func(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error) {
+			approvalCalled = true
+			return ApprovalDecision{Approved: true}, nil
+		},
+	})
+
+	_, err := reg.Execute(context.Background(), api.ToolCall{
+		ID: "call-write-outside",
+		Function: api.FunctionCall{
+			Name:      "write_file",
+			Arguments: `{"file_path":"` + filepath.ToSlash(path) + `","content":"blocked"}`,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected allowed dir to block write_file outside workspace")
+	}
+	if approvalCalled {
+		t.Fatal("expected workspace boundary check to run before approval callback")
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("expected outside file not to be created, stat err: %v", statErr)
+	}
+}
+
+func TestRegistryAllowedDirAllowsDefaultGrepPath(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&Grep{})
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "main.go")
+	if err := os.WriteFile(path, []byte("package main\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWd)
+	reg.SetPolicy(Policy{
+		Mode:       string(ToolModeAuto),
+		AllowedDir: workspace,
+	})
+
+	output, err := reg.Execute(context.Background(), api.ToolCall{
+		ID: "call-grep-default",
+		Function: api.FunctionCall{
+			Name:      "grep",
+			Arguments: `{"pattern":"func main","glob":"*.go"}`,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "main.go") {
+		t.Fatalf("expected grep to find file inside workspace, got %q", output)
+	}
+}
+
+func TestValidatePathRejectsSiblingWithSamePrefix(t *testing.T) {
+	parent := t.TempDir()
+	workspace := filepath.Join(parent, "repo")
+	sibling := filepath.Join(parent, "repo-other")
+	if err := os.MkdirAll(workspace, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sibling, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ValidatePath(workspace, filepath.Join(sibling, "file.txt"))
+	if err == nil {
+		t.Fatal("expected sibling directory with same prefix to be rejected")
+	}
+}
+
 func TestReadFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.txt")

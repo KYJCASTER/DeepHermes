@@ -35,14 +35,19 @@ func readFileJSONSchema() map[string]any {
 
 type ReadFile struct{}
 
-func (t *ReadFile) Name() string        { return "read_file" }
-func (t *ReadFile) Description() string { return "Read a file from the filesystem. Returns the file contents with line numbers." }
+func (t *ReadFile) Name() string { return "read_file" }
+func (t *ReadFile) Description() string {
+	return "Read a file from the filesystem. Returns the file contents with line numbers."
+}
 func (t *ReadFile) Parameters() map[string]any { return readFileJSONSchema() }
 
 func (t *ReadFile) Execute(ctx context.Context, args map[string]any) (string, error) {
 	path, _ := args["file_path"].(string)
 	if path == "" {
 		return "", fmt.Errorf("file_path is required")
+	}
+	if err := ValidatePath(AllowedDirFromContext(ctx), path); err != nil {
+		return "", err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -72,8 +77,10 @@ func (t *ReadFile) Execute(ctx context.Context, args map[string]any) (string, er
 
 type WriteFile struct{}
 
-func (t *WriteFile) Name() string        { return "write_file" }
-func (t *WriteFile) Description() string { return "Write a file to the filesystem. Creates parent directories if needed. Overwrites existing files." }
+func (t *WriteFile) Name() string { return "write_file" }
+func (t *WriteFile) Description() string {
+	return "Write a file to the filesystem. Creates parent directories if needed. Overwrites existing files."
+}
 func (t *WriteFile) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -97,6 +104,9 @@ func (t *WriteFile) Execute(ctx context.Context, args map[string]any) (string, e
 	if path == "" {
 		return "", fmt.Errorf("file_path is required")
 	}
+	if err := ValidatePath(AllowedDirFromContext(ctx), path); err != nil {
+		return "", err
+	}
 	// Ensure parent directory exists
 	if dir := dirOf(path); dir != "" {
 		os.MkdirAll(dir, 0755)
@@ -111,8 +121,10 @@ func (t *WriteFile) Execute(ctx context.Context, args map[string]any) (string, e
 
 type EditFile struct{}
 
-func (t *EditFile) Name() string        { return "edit_file" }
-func (t *EditFile) Description() string { return "Perform exact string replacements in a file. When editing text, ensure you preserve exact indentation (tabs/spaces)." }
+func (t *EditFile) Name() string { return "edit_file" }
+func (t *EditFile) Description() string {
+	return "Perform exact string replacements in a file. When editing text, ensure you preserve exact indentation (tabs/spaces)."
+}
 func (t *EditFile) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -146,6 +158,9 @@ func (t *EditFile) Execute(ctx context.Context, args map[string]any) (string, er
 
 	if path == "" {
 		return "", fmt.Errorf("file_path is required")
+	}
+	if err := ValidatePath(AllowedDirFromContext(ctx), path); err != nil {
+		return "", err
 	}
 	if oldStr == newStr {
 		return "", fmt.Errorf("old_string and new_string must be different")

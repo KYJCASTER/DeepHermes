@@ -13,6 +13,12 @@ import (
 
 func TestReadFileSnippetTruncatesText(t *testing.T) {
 	dir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWd)
+
 	path := filepath.Join(dir, "notes.txt")
 	content := strings.Repeat("abc", 100)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
@@ -37,6 +43,12 @@ func TestReadFileSnippetTruncatesText(t *testing.T) {
 
 func TestReadFileSnippetHidesBinaryContent(t *testing.T) {
 	dir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWd)
+
 	path := filepath.Join(dir, "image.bin")
 	if err := os.WriteFile(path, []byte{0, 1, 2, 3, 4}, 0600); err != nil {
 		t.Fatal(err)
@@ -52,6 +64,32 @@ func TestReadFileSnippetHidesBinaryContent(t *testing.T) {
 	}
 	if snippet.Content != "" {
 		t.Fatalf("binary content should be hidden")
+	}
+}
+
+func TestFileBrowserMethodsRejectOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWd)
+
+	outsideFile := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp(config.Default())
+
+	if _, err := app.ListDirectory(outside); err == nil {
+		t.Fatal("expected ListDirectory to reject outside workspace")
+	}
+	if _, err := app.ReadFileContent(outsideFile); err == nil {
+		t.Fatal("expected ReadFileContent to reject outside workspace")
+	}
+	if _, err := app.ReadFileSnippet(outsideFile, 1024); err == nil {
+		t.Fatal("expected ReadFileSnippet to reject outside workspace")
 	}
 }
 
