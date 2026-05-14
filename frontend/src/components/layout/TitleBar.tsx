@@ -1,4 +1,4 @@
-import { Bot, Languages, Maximize, Minus, Moon, PanelRight, Plus, Settings, Sparkles, Square, Sun, TerminalSquare, X } from "lucide-react";
+import { Bot, Languages, Maximize, Minus, Moon, Palette, PanelRight, Plus, Settings, Square, TerminalSquare, X } from "lucide-react";
 import { useState } from "react";
 import { useCoworkStore } from "../../stores/coworkStore";
 import { LANG_LABELS, useI18n } from "../../stores/i18nStore";
@@ -21,8 +21,8 @@ export default function TitleBar() {
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const { t, lang, toggleLang } = useI18n();
   const [maximized, setMaximized] = useState(false);
-  const themeTitle = theme === "dark" ? t("theme.light") : theme === "light" ? t("theme.anime") : t("theme.dark");
-  const ThemeIcon = theme === "dark" ? Moon : theme === "anime" ? Sparkles : Sun;
+  const themeTitle = theme === "dark" ? t("theme.comic") : t("theme.dark");
+  const ThemeIcon = theme === "dark" ? Moon : Palette;
 
   const handleNewSession = async () => {
     const store = useSessionStore.getState();
@@ -82,12 +82,12 @@ export default function TitleBar() {
         </button>
         <button
           onClick={toggleTheme}
-          className="theme-toggle-track relative flex h-8 w-[4.75rem] items-center rounded-full px-1 transition"
+          className="theme-toggle-track relative flex h-8 w-[3.5rem] items-center rounded-full px-1 transition"
           title={themeTitle}
         >
           <span
             className={`flex h-6 w-6 items-center justify-center rounded-full bg-accent text-bg shadow-sm transition-transform duration-300 ${
-              theme === "anime" ? "translate-x-[1.55rem]" : theme === "dark" ? "translate-x-[2.75rem]" : "translate-x-0"
+              theme === "dark" ? "translate-x-[1.55rem]" : "translate-x-0"
             }`}
           >
             <ThemeIcon size={13} />

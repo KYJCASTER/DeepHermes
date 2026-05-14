@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowRight, ExternalLink, Key, Moon, Sparkles, Sun } from "lucide-react";
+import { AlertCircle, ArrowRight, ExternalLink, Key, Moon, Palette, Sparkles } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../stores/i18nStore";
 import { useThemeStore } from "../../stores/themeStore";
@@ -12,7 +12,7 @@ export default function WelcomeScreen() {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const { t } = useI18n();
-  const themeTitle = theme === "dark" ? t("theme.light") : theme === "light" ? t("theme.anime") : t("theme.dark");
+  const themeTitle = theme === "dark" ? t("theme.comic") : t("theme.dark");
 
   const handleSetup = async () => {
     const key = apiKey.trim();
@@ -38,7 +38,7 @@ export default function WelcomeScreen() {
         className="app-content motion-lift absolute right-5 top-5 z-10 flex h-9 w-9 items-center justify-center rounded border border-border bg-surface/80 text-dim backdrop-blur transition hover:text-accent"
         title={themeTitle}
       >
-        {theme === "dark" ? <Moon size={16} /> : theme === "anime" ? <Sparkles size={16} /> : <Sun size={16} />}
+        {theme === "dark" ? <Moon size={16} /> : <Palette size={16} />}
       </button>
       <div className="app-content mx-auto flex h-full max-w-6xl items-center justify-center px-8">
         <div className="grid w-full grid-cols-[1fr_420px] gap-10 max-lg:grid-cols-1 max-lg:max-w-xl">

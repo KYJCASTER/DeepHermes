@@ -1,4 +1,4 @@
-import { Bot, Moon, PanelRight, Plus, Search, Settings, Sparkles, Sun, TerminalSquare, X, Square } from "lucide-react";
+import { Bot, Moon, Palette, PanelRight, Plus, Search, Settings, TerminalSquare, X, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useCoworkStore } from "../../stores/coworkStore";
 import { useI18n } from "../../stores/i18nStore";
@@ -61,7 +61,7 @@ export default function CommandPalette({ open, onClose }: Props) {
       id: "theme",
       title: t("command.theme"),
       hint: theme,
-      icon: theme === "dark" ? Moon : theme === "anime" ? Sparkles : Sun,
+      icon: theme === "dark" ? Moon : Palette,
       run: () => toggleTheme(),
     },
     {

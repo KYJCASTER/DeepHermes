@@ -1,15 +1,15 @@
 import { create } from "zustand";
 
-export type ThemeMode = "dark" | "light" | "anime";
+export type ThemeMode = "comic" | "dark";
 
 const storageKey = "deephermes.theme";
 
 function initialTheme(): ThemeMode {
   const stored = localStorage.getItem(storageKey);
-  if (stored === "dark" || stored === "light" || stored === "anime") {
+  if (stored === "dark" || stored === "comic") {
     return stored;
   }
-  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  return "comic";
 }
 
 interface ThemeState {
@@ -35,7 +35,7 @@ export const useThemeStore = create<ThemeState>((set, get) => {
       set({ theme: next });
     },
     toggleTheme: () => {
-      const order: ThemeMode[] = ["light", "anime", "dark"];
+      const order: ThemeMode[] = ["comic", "dark"];
       const index = order.indexOf(get().theme);
       const next = order[(index + 1) % order.length];
       applyTheme(next);

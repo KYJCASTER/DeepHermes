@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -83,5 +85,101 @@ func TestChatContextReturnsReadableAPIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "API key") {
 		t.Fatalf("expected friendly API key message, got %q", err.Error())
+	}
+}
+
+func TestChatContextRetriesTransientEOF(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = conn.Close()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "deepseek-v4-flash", "key", 1)
+	resp, err := client.ChatContext(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, 1024, 0.7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if got := resp.Choices[0].Message.Content; got != "ok" {
+		t.Fatalf("unexpected response %q", got)
+	}
+}
+
+func TestRetryErrorMatchesMaxRetriesExceeded(t *testing.T) {
+	err := &RetryError{Err: io.EOF}
+	if !errors.Is(err, ErrMaxRetriesExceeded) {
+		t.Fatalf("expected RetryError to match ErrMaxRetriesExceeded")
+	}
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("expected RetryError to unwrap EOF")
+	}
+}
+
+func TestChatStreamFallsBackWhenStreamDisconnectsBeforeData(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request ChatRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request.Stream {
+			if requests == 1 {
+				hijacker, ok := w.(http.Hijacker)
+				if !ok {
+					t.Fatal("server does not support hijacking")
+				}
+				conn, _, err := hijacker.Hijack()
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _ = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n"))
+				if tcp, ok := conn.(*net.TCPConn); ok {
+					_ = tcp.CloseWrite()
+				}
+				_ = conn.Close()
+				return
+			}
+			t.Fatalf("unexpected second stream request")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"fallback"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "deepseek-v4-flash", "key", 0)
+	var content string
+	var usage *Usage
+	resp, err := client.ChatStreamContext(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, 1024, 0.7, func(update StreamUpdate) error {
+		content += update.Content
+		if update.Usage != nil {
+			usage = update.Usage
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content != "fallback" {
+		t.Fatalf("expected fallback content, got %q", content)
+	}
+	if usage == nil || usage.TotalTokens != 2 {
+		t.Fatalf("expected fallback usage, got %#v", usage)
+	}
+	if resp == nil || len(resp.Choices) != 1 || resp.Choices[0].Message.Content != "fallback" {
+		t.Fatalf("unexpected fallback response %#v", resp)
 	}
 }

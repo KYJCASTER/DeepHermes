@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle, ClipboardList, Download, FileText, HardDrive, Key, Link, Minimize2, Moon, ShieldCheck, SlidersHorizontal, Sparkles, Sun, TestTube2, Upload, Wand2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle, ClipboardList, Download, FileText, HardDrive, Key, Link, Minimize2, Moon, Palette, ShieldCheck, SlidersHorizontal, TestTube2, Upload, Wand2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { ToolMode } from "../../stores/settingsStore";
@@ -343,10 +343,9 @@ export default function SettingsDialog() {
 
           <div className={tabClass("desktop")}>
             <label className="mb-2 block text-sm text-text">{t("settings.appearance")}</label>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {[
-                { id: "light" as const, label: t("theme.lightMode"), icon: Sun },
-                { id: "anime" as const, label: t("theme.animeMode"), icon: Sparkles },
+                { id: "comic" as const, label: t("theme.comicMode"), icon: Palette },
                 { id: "dark" as const, label: t("theme.darkMode"), icon: Moon },
               ].map((option) => (
                 <button

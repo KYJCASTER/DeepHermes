@@ -7,6 +7,10 @@ export function AbortMessage(arg1:string):Promise<void>;
 
 export function ApproveToolCall(arg1:string):Promise<void>;
 
+export function ArchiveSession(arg1:string):Promise<void>;
+
+export function BackupSessions():Promise<app.SessionStorageResult>;
+
 export function BranchSession(arg1:app.BranchSessionRequest):Promise<app.CreateSessionResult>;
 
 export function CancelSubAgent(arg1:string):Promise<void>;
@@ -15,23 +19,17 @@ export function ContinueLastResponse(arg1:string):Promise<void>;
 
 export function CreateSession(arg1:string):Promise<app.CreateSessionResult>;
 
-export function GetContextSummary(arg1:string):Promise<app.ContextSummaryResult>;
-
-export function UpdateContextSummary(arg1:app.UpdateContextSummaryRequest):Promise<void>;
-
-export function ArchiveSession(arg1:string):Promise<void>;
-
-export function BackupSessions():Promise<app.SessionStorageResult>;
-
 export function DeleteMessage(arg1:app.MessageIndexRequest):Promise<void>;
 
 export function DeleteSession(arg1:string):Promise<void>;
 
-export function ExportSettings():Promise<string>;
-
 export function ExportSession(arg1:app.ExportSessionRequest):Promise<app.SessionStorageResult>;
 
+export function ExportSettings():Promise<string>;
+
 export function GetAPIKeyStatus():Promise<string>;
+
+export function GetContextSummary(arg1:string):Promise<app.ContextSummaryResult>;
 
 export function GetDiagnostics():Promise<app.AppDiagnostics>;
 
@@ -49,25 +47,25 @@ export function GetWorkspaceDir():Promise<string>;
 
 export function HideMainWindow():Promise<void>;
 
-export function ImportSettings():Promise<void>;
-
 export function ImportCharacterCard():Promise<app.CharacterCardImportResult>;
 
+export function ImportSettings():Promise<void>;
+
 export function ListDirectory(arg1:string):Promise<Array<app.FileEntry>>;
+
+export function ListOCRPresets():Promise<Array<app.OCRProviderPreset>>;
 
 export function ListSessions():Promise<Array<app.SessionInfo>>;
 
 export function ListTools():Promise<Array<app.ToolInfo>>;
 
-export function OpenDirectoryDialog():Promise<string>;
-
-export function OpenFileDialog():Promise<string>;
-
-export function ListOCRPresets():Promise<Array<app.OCRProviderPreset>>;
-
 export function OCRImage(arg1:app.OCRImageRequest):Promise<app.OCRImageResult>;
 
 export function OCRImageFile(arg1:string):Promise<app.OCRImageResult>;
+
+export function OpenDirectoryDialog():Promise<string>;
+
+export function OpenFileDialog():Promise<string>;
 
 export function QuitApp():Promise<void>;
 
@@ -98,6 +96,8 @@ export function SetThinking(arg1:boolean):Promise<void>;
 export function SpawnSubAgent(arg1:app.SpawnSubAgentRequest):Promise<string>;
 
 export function TestAPIKey(arg1:app.APIKeyTestRequest):Promise<app.APIKeyTestResult>;
+
+export function UpdateContextSummary(arg1:app.UpdateContextSummaryRequest):Promise<void>;
 
 export function UpdateMessage(arg1:app.UpdateMessageRequest):Promise<void>;
 

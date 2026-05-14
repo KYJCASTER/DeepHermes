@@ -2146,6 +2146,9 @@ func friendlyErrorMessage(err error) string {
 	}
 	message := strings.TrimSpace(err.Error())
 	lower := strings.ToLower(message)
+	if friendly := friendlyNetworkErrorMessage(lower, message); friendly != "" {
+		return friendly
+	}
 	switch {
 	case strings.Contains(lower, "reasoning_content"):
 		return "DeepSeek 拒绝了请求：reasoning_content 不能作为普通历史消息传回。请重试；如果仍出现，关闭思考显示或新建会话可绕过旧历史。原始错误：" + message
@@ -2163,6 +2166,20 @@ func friendlyErrorMessage(err error) string {
 		return "DeepSeek 返回 400 请求错误。通常是模型参数、消息格式或上下文内容不符合接口要求。原始错误：" + message
 	default:
 		return message
+	}
+}
+
+func friendlyNetworkErrorMessage(lower, message string) string {
+	switch {
+	case strings.Contains(lower, "eof"),
+		strings.Contains(lower, "connection reset"),
+		strings.Contains(lower, "connection aborted"),
+		strings.Contains(lower, "broken pipe"),
+		strings.Contains(lower, "server closed idle connection"),
+		strings.Contains(lower, "forcibly closed"):
+		return "The DeepSeek connection was interrupted before a response completed. This is usually a transient network, proxy, or upstream issue. Retry once; if it repeats, test the API key in Settings, check proxy stability, or increase API timeout. Original error: " + message
+	default:
+		return ""
 	}
 }
 

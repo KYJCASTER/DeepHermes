@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -121,6 +123,30 @@ func (e *APIError) Error() string {
 		prefix += " " + e.Code
 	}
 	return prefix + ": " + detail
+}
+
+var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
+
+type RetryError struct {
+	Err error
+}
+
+func (e *RetryError) Error() string {
+	if e == nil || e.Err == nil {
+		return ErrMaxRetriesExceeded.Error()
+	}
+	return ErrMaxRetriesExceeded.Error() + ": " + e.Err.Error()
+}
+
+func (e *RetryError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func (e *RetryError) Is(target error) bool {
+	return target == ErrMaxRetriesExceeded
 }
 
 type StreamChunk struct {
@@ -260,17 +286,20 @@ func (c *Client) do(req *http.Request, cfg clientSnapshot) (*http.Response, erro
 				return nil, req.Context().Err()
 			case <-timer.C:
 			}
-			if req.GetBody != nil {
-				body, err := req.GetBody()
-				if err != nil {
-					return nil, err
-				}
-				req.Body = body
-			}
 		}
-		resp, err := cfg.httpClient.Do(req)
+		attemptReq, err := cloneRequestForRetry(req)
+		if err != nil {
+			return nil, err
+		}
+		if i > 0 && IsTransientNetworkError(lastErr) {
+			attemptReq.Close = true
+		}
+		resp, err := cfg.httpClient.Do(attemptReq)
 		if err != nil {
 			lastErr = err
+			if IsTransientNetworkError(err) {
+				cfg.httpClient.CloseIdleConnections()
+			}
 			continue
 		}
 		if resp.StatusCode == 429 || resp.StatusCode >= 500 {
@@ -286,7 +315,58 @@ func (c *Client) do(req *http.Request, cfg clientSnapshot) (*http.Response, erro
 		}
 		return resp, nil
 	}
-	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+	return nil, &RetryError{Err: lastErr}
+}
+
+func cloneRequestForRetry(req *http.Request) (*http.Request, error) {
+	cloned := req.Clone(req.Context())
+	cloned.Header = req.Header.Clone()
+	if req.Body == nil {
+		return cloned, nil
+	}
+	if req.GetBody == nil {
+		return nil, fmt.Errorf("request body cannot be replayed")
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, err
+	}
+	cloned.Body = body
+	return cloned, nil
+}
+
+func IsTransientNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	transientSignals := []string{
+		"eof",
+		"connection reset",
+		"connection refused",
+		"connection aborted",
+		"broken pipe",
+		"server closed idle connection",
+		"tls handshake timeout",
+		"wsarecv",
+		"forcibly closed",
+	}
+	for _, signal := range transientSignals {
+		if strings.Contains(lower, signal) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseAPIError(statusCode int, body []byte) error {
@@ -358,6 +438,12 @@ func (c *Client) ChatContext(ctx context.Context, messages []Message, tools []To
 		Thinking:        buildThinking(cfg.model, cfg.thinkingEnabled),
 		ReasoningEffort: buildReasoningEffort(cfg.model, cfg.thinkingEnabled),
 	}
+	return c.chatContextWithSnapshot(ctx, cfg, reqBody)
+}
+
+func (c *Client) chatContextWithSnapshot(ctx context.Context, cfg clientSnapshot, reqBody ChatRequest) (*ChatResponse, error) {
+	reqBody.Stream = false
+	reqBody.StreamOptions = nil
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, err
@@ -414,11 +500,25 @@ func (c *Client) ChatStreamContext(ctx context.Context, messages []Message, tool
 
 	resp, err := c.do(req, cfg)
 	if err != nil {
+		if IsTransientNetworkError(err) && ctx.Err() == nil {
+			fallbackReq := reqBody
+			fallbackResp, fallbackErr := c.chatContextWithSnapshot(ctx, cfg, fallbackReq)
+			if fallbackErr == nil {
+				if err := emitChatResponseAsStream(fallbackResp, cb); err != nil {
+					return nil, err
+				}
+				return fallbackResp, nil
+			}
+			if !IsTransientNetworkError(fallbackErr) {
+				return nil, fallbackErr
+			}
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var finalResp ChatResponse
+	sawStreamData := false
 	scanner := bufio.NewScanner(resp.Body)
 	// Increase buffer for long lines
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -439,6 +539,7 @@ func (c *Client) ChatStreamContext(ctx context.Context, messages []Message, tool
 		}
 		if chunk.Usage != nil {
 			finalResp.Usage = chunk.Usage
+			sawStreamData = true
 			if err := cb(StreamUpdate{Usage: chunk.Usage}); err != nil {
 				return nil, err
 			}
@@ -451,15 +552,65 @@ func (c *Client) ChatStreamContext(ctx context.Context, messages []Message, tool
 					ToolCalls:        choice.Delta.ToolCalls,
 				}
 				if update.Content != "" || update.ReasoningContent != "" || len(update.ToolCalls) > 0 {
+					sawStreamData = true
 					if err := cb(update); err != nil {
 						return nil, err
 					}
 				}
 			}
 			if choice.FinishReason != "" {
+				sawStreamData = true
 				finalResp.Choices = append(finalResp.Choices, choice)
 			}
 		}
 	}
-	return &finalResp, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		if !sawStreamData && IsTransientNetworkError(err) && ctx.Err() == nil {
+			fallbackReq := reqBody
+			fallbackResp, fallbackErr := c.chatContextWithSnapshot(ctx, cfg, fallbackReq)
+			if fallbackErr == nil {
+				if err := emitChatResponseAsStream(fallbackResp, cb); err != nil {
+					return nil, err
+				}
+				return fallbackResp, nil
+			}
+			if !IsTransientNetworkError(fallbackErr) {
+				return nil, fallbackErr
+			}
+		}
+		return &finalResp, err
+	}
+	if !sawStreamData && ctx.Err() == nil {
+		fallbackReq := reqBody
+		fallbackResp, fallbackErr := c.chatContextWithSnapshot(ctx, cfg, fallbackReq)
+		if fallbackErr == nil {
+			if err := emitChatResponseAsStream(fallbackResp, cb); err != nil {
+				return nil, err
+			}
+			return fallbackResp, nil
+		}
+	}
+	return &finalResp, nil
+}
+
+func emitChatResponseAsStream(resp *ChatResponse, cb StreamCallback) error {
+	if resp == nil || cb == nil {
+		return nil
+	}
+	for _, choice := range resp.Choices {
+		update := StreamUpdate{
+			Content:          choice.Message.Content,
+			ReasoningContent: choice.Message.ReasoningContent,
+			ToolCalls:        choice.Message.ToolCalls,
+		}
+		if update.Content != "" || update.ReasoningContent != "" || len(update.ToolCalls) > 0 {
+			if err := cb(update); err != nil {
+				return err
+			}
+		}
+	}
+	if resp.Usage != nil {
+		return cb(StreamUpdate{Usage: resp.Usage})
+	}
+	return nil
 }
